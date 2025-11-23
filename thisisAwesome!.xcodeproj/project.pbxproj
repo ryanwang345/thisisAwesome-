@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		3511992E2ED1A8D9006A695B /* thisisAwesome! Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A662ED2EE5600859470 /* Accelerate.framework */; };
-		35FA8A6C2ED2EE7600859470 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */; };
 		35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -60,7 +59,6 @@
 			files = (
 				35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */,
 				35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */,
-				35FA8A6C2ED2EE7600859470 /* BackgroundTasks.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

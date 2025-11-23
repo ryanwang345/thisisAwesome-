@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		3511992E2ED1A8D9006A695B /* thisisAwesome! Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A662ED2EE5600859470 /* Accelerate.framework */; };
+		35FA8A6C2ED2EE7600859470 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */; };
+		35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,6 +40,9 @@
 /* Begin PBXFileReference section */
 		351199272ED1A8D9006A695B /* thisisAwesome!.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "thisisAwesome!.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "thisisAwesome! Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		35FA8A662ED2EE5600859470 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/Accelerate.framework; sourceTree = DEVELOPER_DIR; };
+		35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTasks.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/BackgroundTasks.framework; sourceTree = DEVELOPER_DIR; };
+		35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/HealthKit.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -52,6 +58,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */,
+				35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */,
+				35FA8A6C2ED2EE7600859470 /* BackgroundTasks.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -62,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				351199312ED1A8D9006A695B /* thisisAwesome! Watch App */,
+				35FA8A652ED2EE5500859470 /* Frameworks */,
 				351199282ED1A8D9006A695B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +83,16 @@
 				3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		35FA8A652ED2EE5500859470 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */,
+				35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */,
+				35FA8A662ED2EE5600859470 /* Accelerate.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -314,11 +334,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "thisisAwesome! Watch App/thisisAwesome_App.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = EXE73XVS27;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "thisisAwesome-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "thisisAwesome!";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
@@ -329,6 +353,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ryan-wang.thisisAwesome-.watchkitapp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -347,11 +372,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "thisisAwesome! Watch App/thisisAwesome_App.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = EXE73XVS27;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "thisisAwesome-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "thisisAwesome!";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
@@ -362,6 +391,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ryan-wang.thisisAwesome-.watchkitapp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

@@ -91,6 +91,8 @@ extension WaterSubmersionManager: CMWaterSubmersionManagerDelegate {
     func manager(_ manager: CMWaterSubmersionManager, errorOccurred error: Error) {
         DispatchQueue.main.async {
             self.errorDescription = error.localizedDescription
+            //print more detailed error info
+            print("\(self.logPrefix) error details: \(error)")
             self.stop()
             print("\(self.logPrefix) error=\(error.localizedDescription)")
         }

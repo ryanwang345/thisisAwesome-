@@ -27,6 +27,7 @@ struct ContentView: View {
 
     @StateObject private var heartRateManager = HeartRateManager()
     @StateObject private var waterManager = WaterSubmersionManager()
+    @StateObject private var compassManager = CompassManager()
 
     var body: some View {
         ZStack {
@@ -54,6 +55,14 @@ struct ContentView: View {
                     // Error banner for depth sensor issues
                     if let error = waterManager.errorDescription {
                         Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 4)
+                    }
+
+                     if let compassError = compassManager.errorDescription {
+                        Text(compassError)
                             .font(.caption2)
                             .foregroundStyle(.yellow)
                             .multilineTextAlignment(.center)
@@ -98,6 +107,27 @@ struct ContentView: View {
                             .font(.system(.title3, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.white)
+                    }
+                    .padding(.top, 2)
+
+                    // Compass heading
+                    VStack(spacing: 2) {
+                        Text("Heading")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        if let heading = compassManager.headingDegrees {
+                            let direction = compassManager.headingDirection ?? "--"
+                            Text("\(direction) \(String(format: "%.0f°", heading))")
+                                .font(.system(.title3, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                        } else {
+                            Text("--°")
+                                .font(.system(.title3, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                        }
                     }
                     .padding(.top, 2)
 
@@ -177,12 +207,12 @@ struct ContentView: View {
         }
         .onAppear {
             waterManager.start()
+            compassManager.start()
         }
         .onDisappear {
             timer?.invalidate()
             timer = nil
             heartRateManager.stop()
-            waterManager.stop()
         }
         .onReceive(waterManager.$depthMeters) { depth in
             handleDepthChange(to: depth)

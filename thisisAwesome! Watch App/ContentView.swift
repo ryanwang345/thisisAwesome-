@@ -220,6 +220,8 @@ struct ContentView: View {
         .onReceive(waterManager.$isSubmerged) { submerged in
             if submerged, !isDiving {
                 startDive(initialDepth: max(currentDepth, waterManager.depthMeters))
+            } else if !submerged, isDiving {
+                stopDive()
             }
         }
     }

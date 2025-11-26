@@ -449,7 +449,7 @@
 				351199392ED1A8DB006A695B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 		3511993A2ED1A8DB006A695B /* Build configuration list for PBXNativeTarget "thisisAwesome! Watch App" */ = {
 			isa = XCConfigurationList;
@@ -458,7 +458,7 @@
 				3511993C2ED1A8DB006A695B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 		3511993E2ED1A8DB006A695B /* Build configuration list for PBXNativeTarget "thisisAwesome!" */ = {
 			isa = XCConfigurationList;
@@ -467,7 +467,7 @@
 				351199402ED1A8DB006A695B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 	};

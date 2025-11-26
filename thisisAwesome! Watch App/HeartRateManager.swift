@@ -11,31 +11,34 @@ final class HeartRateManager: NSObject, ObservableObject {
     private let healthStore = HKHealthStore()
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
+    private var currentStartDate: Date?
 
     // Start listening to heart rate
-  func start() {
-      guard HKHealthStore.isHealthDataAvailable() else { return }
-      guard let hrType = HKObjectType.quantityType(forIdentifier: .heartRate) else { return }
+    func start() {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        guard let hrType = HKObjectType.quantityType(forIdentifier: .heartRate) else { return }
+        let depthType = HKObjectType.quantityType(forIdentifier: .underwaterDepth)
 
-      // We need workout share permission to run a live workout session.
-      let typesToShare: Set<HKSampleType> = [HKObjectType.workoutType()]
-      let typesToRead: Set<HKObjectType>  = [hrType]
+        // Request workout + underwater depth write, and heart rate read
+        var typesToShare: Set<HKSampleType> = [HKObjectType.workoutType()]
+        if let depthType { typesToShare.insert(depthType) }
+        let typesToRead: Set<HKObjectType> = [hrType]
 
-      healthStore.requestAuthorization(
-          toShare: typesToShare,
-          read: typesToRead
-      ) { [weak self] success, error in
-          guard success, error == nil else {
-              print("HealthKit auth failed: \(error?.localizedDescription ?? "unknown error")")
-              return
-          }
-          guard let self = self else { return }
+        healthStore.requestAuthorization(
+            toShare: typesToShare,
+            read: typesToRead
+        ) { [weak self] success, error in
+            guard success, error == nil else {
+                print("HealthKit auth failed: \(error?.localizedDescription ?? "unknown error")")
+                return
+            }
+            guard let self = self else { return }
 
-          DispatchQueue.main.async {
-              self.startWorkoutSession(heartRateType: hrType)
-          }
-      }
-  }
+            DispatchQueue.main.async {
+                self.startWorkoutSession(heartRateType: hrType)
+            }
+        }
+    }
 
 
     // Stop listening
@@ -59,6 +62,7 @@ final class HeartRateManager: NSObject, ObservableObject {
 
             workoutSession = session
             workoutBuilder = builder
+            currentStartDate = Date()
 
             session.delegate = self
             builder.delegate = self
@@ -77,6 +81,99 @@ final class HeartRateManager: NSObject, ObservableObject {
             }
         } catch {
             print("Failed to start workout session: \(error)")
+        }
+    }
+
+    func saveDiveResult(startDate: Date, endDate: Date, maxDepthMeters: Double) {
+        let activity: HKWorkoutActivityType
+        if #available(watchOS 10.0, *) {
+            activity = .underwaterDiving
+        } else {
+            activity = .waterSports
+        }
+
+        // Prepare depth sample if available
+        var samples: [HKSample] = []
+        if let depthType = HKObjectType.quantityType(forIdentifier: .underwaterDepth) {
+            let depthQuantity = HKQuantity(unit: HKUnit.meter(), doubleValue: maxDepthMeters)
+            let depthSample = HKQuantitySample(type: depthType,
+                                               quantity: depthQuantity,
+                                               start: startDate,
+                                               end: endDate)
+            samples.append(depthSample)
+        }
+
+        // Prefer HKWorkoutBuilder on watchOS 10+
+        if #available(watchOS 10.0, *) {
+            let config = HKWorkoutConfiguration()
+            config.activityType = activity
+            config.locationType = .outdoor
+
+            let builder = HKWorkoutBuilder(healthStore: healthStore,
+                                           configuration: config,
+                                           device: .local())
+
+            builder.beginCollection(withStart: startDate) { [weak self] started, error in
+                guard started, error == nil else {
+                    let message = error?.localizedDescription ?? "unknown error"
+                    print("Failed to begin workout collection: \(message)")
+                    return
+                }
+
+                if !samples.isEmpty {
+                    builder.add(samples) { success, addError in
+                        if !success || addError != nil {
+                            let msg = addError?.localizedDescription ?? "unknown error"
+                            print("Failed to add depth sample: \(msg)")
+                        }
+                    }
+                }
+
+                builder.endCollection(withEnd: endDate) { _, endError in
+                    if let endError {
+                        print("Failed to end workout collection: \(endError.localizedDescription)")
+                    }
+                    builder.finishWorkout { workout, finishError in
+                        if let finishError {
+                            print("Failed to finish workout: \(finishError.localizedDescription)")
+                        } else {
+                            if let type = workout?.workoutActivityType.rawValue {
+                                print("Saved workout to Health: \(type)")
+                            } else {
+                                print("Saved workout to Health")
+                            }
+                        }
+                        self?.currentStartDate = nil
+                    }
+                }
+            }
+        } else {
+            let workout = HKWorkout(activityType: activity,
+                                    start: startDate,
+                                    end: endDate,
+                                    workoutEvents: nil,
+                                    totalEnergyBurned: nil,
+                                    totalDistance: nil,
+                                    device: .local(),
+                                    metadata: [
+                                        HKMetadataKeyIndoorWorkout: false,
+                                        HKMetadataKeyGroupFitness: false
+                                    ])
+
+            healthStore.save(workout) { [weak self] success, error in
+                if !success || error != nil {
+                    let message = error?.localizedDescription ?? "unknown error"
+                    print("Failed to save workout: \(message)")
+                    return
+                }
+                guard !samples.isEmpty else { return }
+                self?.healthStore.add(samples, to: workout) { addSuccess, addError in
+                    if !addSuccess || addError != nil {
+                        let msg = addError?.localizedDescription ?? "unknown error"
+                        print("Failed to add depth sample: \(msg)")
+                    }
+                }
+            }
         }
     }
 }

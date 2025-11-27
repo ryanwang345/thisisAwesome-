@@ -51,23 +51,23 @@ struct ContentView: View {
                             .foregroundStyle(.white.opacity(0.7))
                     }
 
-                    if waterManager.errorDescription != nil || compassManager.errorDescription != nil {
-                        VStack(spacing: 4) {
-                            if let error = waterManager.errorDescription {
-                                Text(error)
-                            }
-                            if let compassError = compassManager.errorDescription {
-                                Text(compassError)
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
-                        .multilineTextAlignment(.center)
-                        .padding(6)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.black.opacity(0.35))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
+//                    if waterManager.errorDescription != nil || compassManager.errorDescription != nil {
+//                        VStack(spacing: 4) {
+//                            if let error = waterManager.errorDescription {
+//                                Text(error)
+//                            }
+//                            if let compassError = compassManager.errorDescription {
+//                                Text(compassError)
+//                            }
+//                        }
+//                        .font(.caption2)
+//                        .foregroundStyle(.yellow)
+//                        .multilineTextAlignment(.center)
+//                        .padding(6)
+//                        .frame(maxWidth: .infinity)
+//                        .background(Color.black.opacity(0.35))
+//                        .clipShape(RoundedRectangle(cornerRadius: 8))
+//                    }
 
                     // Depth + goal
                     VStack(spacing: 2) {
@@ -120,17 +120,13 @@ struct ContentView: View {
                                     Button { changeDepth(by: -1) } label: {
                                         Image(systemName: "minus")
                                             .font(.caption)
-                                            .frame(width: 26, height: 26)
-                                            .background(Color.white.opacity(0.18))
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
                                     }
+                                    .buttonStyle(GoalStepButtonStyle())
                                     Button { changeDepth(by: 1) } label: {
                                         Image(systemName: "plus")
                                             .font(.caption)
-                                            .frame(width: 26, height: 26)
-                                            .background(Color.white.opacity(0.18))
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
                                     }
+                                    .buttonStyle(GoalStepButtonStyle())
                                 }
                             }
                         }
@@ -199,7 +195,7 @@ struct ContentView: View {
     }
 
     private func statBlock(title: String, value: String, alignment: HorizontalAlignment = .leading, valueFont: Font.TextStyle = .title3) -> some View {
-        VStack(alignment: alignment, spacing: 3) {
+        VStack(alignment: alignment, spacing: 0) {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.7))
@@ -209,6 +205,21 @@ struct ContentView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+        }
+    }
+
+    private struct GoalStepButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(configuration.isPressed ? 0.55 : 0.22))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(configuration.isPressed ? 0.8 : 0.45), lineWidth: 1.1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
 
@@ -287,6 +298,9 @@ private struct CompassDial: View {
     let heading: Double?
     let direction: String?
 
+    @State private var accumulatedHeading: Double = 0
+    @State private var lastHeading: Double?
+
     private var displayHeading: String {
         guard let heading else { return "--" }
         return String(format: "%.0f°", heading)
@@ -298,84 +312,154 @@ private struct CompassDial: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Heading")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.8))
-                Spacer()
-                Text("\(displayDirection) \(displayHeading)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
+            ZStack(alignment: .center) {
+//                HStack {
+//                    Text("Heading")
+//                        .font(.caption2.weight(.medium))
+//                        .foregroundStyle(.white.opacity(0.8))
+//                    Spacer()
+//                    Spacer()
+//                    Spacer()
+//                }.frame(height: 30)
+
+                HStack(spacing: 10) {
+                    Text(displayDirection)
+                        .font(.caption.weight(.bold))
+                    Text(displayHeading)
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.orange)
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: 26, alignment: .center)
 
             GeometryReader { geo in
-                let width = geo.size.width
-                let needleX = normalizedOffset(width: width)
-                let sweepWidth = max(width * 0.18, width * 0.24)
+                let inset: CGFloat = 18
+                let width = max(geo.size.width - inset * 2, 0)
+                // Center the scale under the arrow: shift so current heading sits at x = 0
+                let rawOffset = (width / 2) - (CGFloat(accumulatedHeading) / 360.0 * width)
+                let tileRadius = 10
+                let edgeMask = LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.0),
+                        .init(color: .white, location: 0.08),
+                        .init(color: .white, location: 0.92),
+                        .init(color: .clear, location: 1.0)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
 
-                VStack(spacing: 4) {
-                    ZStack(alignment: .leading) {
+                VStack(spacing: 21) {
+                    // Tile the scale so it scrolls infinitely while the arrow stays centered
+                    ZStack {
+                        ForEach(-tileRadius...tileRadius, id: \.self) { idx in
+                            scaleBar(width: width)
+                                .offset(x: rawOffset + CGFloat(idx) * width)
+                        }
+                    }
+                    .frame(width: width, height: 18, alignment: .center)
+                    .mask(edgeMask.frame(width: width, height: 18))
+                    .overlay(alignment: .center) {
                         Capsule()
                             .fill(
                                 LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.12),
-                                        Color.white.opacity(0.04)
-                                    ],
+                                    colors: [.orange.opacity(0.85), .red.opacity(0.8)],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
                             )
-                            .frame(height: 12)
-
-                        // Tick marks every 30 degrees
-                        ForEach(0..<13) { index in
-                            let x = width * CGFloat(index) / 12
-                            Rectangle()
-                                .fill(Color.white.opacity(index % 2 == 0 ? 0.7 : 0.35))
-                                .frame(width: 1, height: index % 2 == 0 ? 12 : 8)
-                                .offset(x: x - 0.5)
-                        }
-
-                        // Gradient fill representing heading sweep, centered on the needle
-                        Capsule()
-                            .fill(LinearGradient(
-                                colors: [.orange.opacity(0.95), .red.opacity(0.9)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ))
-                            .frame(width: sweepWidth, height: 8)
-                            .offset(x: needleX - sweepWidth / 2)
-                            .animation(.easeOut(duration: 0.2), value: heading)
-
-                        // Needle
+                            .frame(width: min(width * 0.25, 56), height: 10)
+                            .shadow(color: .orange.opacity(0.35), radius: 3, y: 1)
+                    }
+                    .animation(.linear(duration: 0.15), value: accumulatedHeading)
+                    .overlay(
                         Triangle()
-                            .fill(.orange)
-                            .frame(width: 8, height: 16)
-                            .offset(x: needleX - 4, y: -2)
+                            .fill(.yellow)
+                            .frame(width: 12, height: 22)
+                            .offset(y: -4)
                             .opacity(heading == nil ? 0.3 : 1)
-                    }
-                    .frame(height: 18)
+                    )
 
-                    HStack {
-                        ForEach(cardinalMarkers, id: \.label) { marker in
-                            Spacer()
-                            Text(marker.label)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(marker.label == displayDirection ? .orange : .white.opacity(0.8))
-                            Spacer()
+                    ZStack {
+                        ForEach(-tileRadius...tileRadius, id: \.self) { idx in
+                            cardinalRow(width: width)
+                                .offset(x: rawOffset + CGFloat(idx) * width)
                         }
                     }
+                    .frame(width: width, alignment: .center)
+                    .mask(edgeMask.frame(width: width, height: 16))
+                    .overlay(alignment: .center) {
+                        Text(displayDirection)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.orange)
+                            .shadow(color: .black.opacity(0.35), radius: 1, y: 0.5)
+                            .offset(y: -18)
+                    }
+                    .animation(.linear(duration: 0.15), value: accumulatedHeading)
                 }
+                .frame(width: width)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .frame(height: 46)
         }
+        .onAppear { updateAccumulatedHeading(with: heading) }
+        .onChange(of: heading) { _, newHeading in
+            updateAccumulatedHeading(with: newHeading)
+        }
     }
 
-    private func normalizedOffset(width: CGFloat) -> CGFloat {
-        guard let heading else { return width / 2 }
-        let ratio = CGFloat((heading.truncatingRemainder(dividingBy: 360)) / 360.0)
-        return ratio * width
+    private func updateAccumulatedHeading(with newHeading: Double?) {
+        guard let newHeading else { return }
+        if let lastHeading {
+            var delta = newHeading - lastHeading
+            if delta > 180 { delta -= 360 }
+            if delta < -180 { delta += 360 }
+            accumulatedHeading += delta
+        } else {
+            accumulatedHeading = newHeading
+        }
+        lastHeading = newHeading
+    }
+
+    @ViewBuilder
+    private func scaleBar(width: CGFloat) -> some View {
+        ZStack(alignment: .center) {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.04)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: width, height: 12)
+
+            ForEach(0..<13) { index in
+                let x = width * CGFloat(index) / 12 - width / 2
+                Rectangle()
+                    .fill(Color.white.opacity(index % 2 == 0 ? 0.7 : 0.35))
+                    .frame(width: 1, height: index % 2 == 0 ? 12 : 8)
+                    .offset(x: x)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cardinalRow(width: CGFloat) -> some View {
+        ZStack(alignment: .center) {
+            ForEach(cardinalMarkers, id: \.label) { marker in
+                let x = width * CGFloat(marker.degrees / 360.0) - width / 2
+                Text(marker.label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(marker.label == displayDirection ? .orange : .white.opacity(0.8))
+                    .offset(x: x)
+            }
+        }
+        .frame(width: width, height: 16)
     }
 
     private var cardinalMarkers: [(label: String, degrees: Double)] {

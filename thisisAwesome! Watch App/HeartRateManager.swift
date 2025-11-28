@@ -12,9 +12,11 @@ final class HeartRateManager: NSObject, ObservableObject {
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var currentStartDate: Date?
+    private var isRunning = false
 
     // Start listening to heart rate
     func start() {
+        guard !isRunning else { return }
         guard HKHealthStore.isHealthDataAvailable() else { return }
         guard let hrType = HKObjectType.quantityType(forIdentifier: .heartRate) else { return }
         let depthType = HKObjectType.quantityType(forIdentifier: .underwaterDepth)
@@ -43,10 +45,15 @@ final class HeartRateManager: NSObject, ObservableObject {
 
     // Stop listening
     func stop() {
+        guard isRunning else { return }
         workoutSession?.end()
         workoutBuilder?.endCollection(withEnd: Date()) { _, _ in }
+        workoutSession?.delegate = nil
+        workoutBuilder?.delegate = nil
+        workoutBuilder?.dataSource = nil
         workoutSession = nil
         workoutBuilder = nil
+        isRunning = false
     }
 
     // MARK: - Private
@@ -63,6 +70,7 @@ final class HeartRateManager: NSObject, ObservableObject {
             workoutSession = session
             workoutBuilder = builder
             currentStartDate = Date()
+            isRunning = true
 
             session.delegate = self
             builder.delegate = self
@@ -77,10 +85,12 @@ final class HeartRateManager: NSObject, ObservableObject {
             builder.beginCollection(withStart: startDate) { _, error in
                 if let error {
                     print("Failed to begin workout collection: \(error.localizedDescription)")
+                    self.isRunning = false
                 }
             }
         } catch {
             print("Failed to start workout session: \(error)")
+            isRunning = false
         }
     }
 

@@ -39,17 +39,26 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 10) {
-                    // Header
-                    VStack(spacing: 1) {
-                        Text("Freedive")
-                            .font(.headline)
-                            .foregroundStyle(.white.opacity(0.9))
-                        Text(phase.rawValue)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
+            VStack(spacing: 5) {
+                // Depth + goal (kept outside ScrollView so it stays fixed)
+                VStack(spacing: 1) {
+                    Text(String(format: "%.1f m", currentDepth))
+                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                    Text("GOAL \(String(format: "%.1f", diveGoal)) m")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+
+                ScrollView {
+                    VStack(spacing: 10) {
+                        // Header
+                        VStack(spacing: 1) {
+                            Text(phase.rawValue)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
 
 //                    if waterManager.errorDescription != nil || compassManager.errorDescription != nil {
 //                        VStack(spacing: 4) {
@@ -69,97 +78,88 @@ struct ContentView: View {
 //                        .clipShape(RoundedRectangle(cornerRadius: 8))
 //                    }
 
-                    // Depth + goal
-                    VStack(spacing: 2) {
-                        Text(String(format: "%.1f m", currentDepth))
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                        Text("GOAL \(String(format: "%.1f", diveGoal)) m")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-
-                    // Unified info card (content drives the height; rounded rect sits behind)
-                    VStack(spacing: 12) {
-                        HStack {
-                            statBlock(title: "Heart rate",
-                                      value: heartRateManager.heartRate > 0 ? "\(heartRateManager.heartRate) bpm" : "-- bpm",
-                                      alignment: .center,
-                                      valueFont: .title3)
-                            Divider()
-                                .background(Color.white.opacity(0.15))
-                                .padding(.vertical, 6)
-                            statBlock(title: "Water temp",
-                                      value: waterManager.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "-- C",
-                                      alignment: .center,
-                                      valueFont: .title3)
-                        }
-
-                        CompassDial(
-                            heading: compassManager.headingDegrees,
-                            direction: compassManager.headingDirection
-                        )
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .center, spacing: 10) {
-                                statBlock(title: "Dive Time", value: formattedTime(diveTime), valueFont: .body)
+                        // Unified info card (content drives the height; rounded rect sits behind)
+                        VStack(spacing: 12) {
+                            HStack {
+                                statBlock(title: "Heart rate",
+                                          value: heartRateManager.heartRate > 0 ? "\(heartRateManager.heartRate) bpm" : "-- bpm",
+                                          alignment: .center,
+                                          valueFont: .title3)
                                 Divider()
                                     .background(Color.white.opacity(0.15))
-                                    .frame(height: 26)
-                                statBlock(title: "Depth", value: String(format: "%.1f m", currentDepth), alignment: .center, valueFont: .body)
-                                Spacer()
+                                    .padding(.vertical, 6)
+                                statBlock(title: "Water temp",
+                                          value: waterManager.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "-- C",
+                                          alignment: .center,
+                                          valueFont: .title3)
                             }
 
-                            HStack(spacing: 10) {
-                                Text("Goal")
-                                    .font(.caption2)
-                                    .foregroundStyle(.white.opacity(0.7))
-                                Spacer()
-                                HStack(spacing: 8) {
-                                    Button { changeDepth(by: -1) } label: {
-                                        Image(systemName: "minus")
-                                            .font(.caption)
+                            CompassDial(
+                                heading: compassManager.headingDegrees,
+                                direction: compassManager.headingDirection
+                            )
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .center, spacing: 10) {
+                                    statBlock(title: "Dive Time", value: formattedTime(diveTime), valueFont: .body)
+                                    Divider()
+                                        .background(Color.white.opacity(0.15))
+                                        .frame(height: 26)
+                                    statBlock(title: "Depth", value: String(format: "%.1f m", currentDepth), alignment: .center, valueFont: .body)
+                                    Spacer()
+                                }
+
+                                HStack(spacing: 10) {
+                                    Text("Goal")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    HStack(spacing: 8) {
+                                        Button { changeDepth(by: -1) } label: {
+                                            Image(systemName: "minus")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(GoalStepButtonStyle())
+                                        Button { changeDepth(by: 1) } label: {
+                                            Image(systemName: "plus")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(GoalStepButtonStyle())
                                     }
-                                    .buttonStyle(GoalStepButtonStyle())
-                                    Button { changeDepth(by: 1) } label: {
-                                        Image(systemName: "plus")
-                                            .font(.caption)
-                                    }
-                                    .buttonStyle(GoalStepButtonStyle())
                                 }
                             }
                         }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white.opacity(0.05))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.white.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
 
-                    // Start / Stop button
-                    Button(action: { isDiving ? stopDive() : startDive() }) {
-                        Text(isDiving ? "End Dive" : "Start Dive")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity)
+                        // Start / Stop button
+                        Button(action: { isDiving ? stopDive() : startDive() }) {
+                            Text(isDiving ? "End Dive" : "Start Dive")
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(isDiving ? .red : .green)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(isDiving ? .red : .green)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .scrollIndicators(.hidden)
-            .safeAreaInset(edge: .top) {
-                Color.clear.frame(height: 10)
-            }
+        }
+            .padding(.top, -40)
+//         .safeAreaInset(edge: .top) {
+//             Color.clear.frame(height: 2)
+//         }
         }
         .onAppear {
             waterManager.start()

@@ -17,24 +17,22 @@ final class WaterSubmersionManager: NSObject, ObservableObject {
     private let manager = CMWaterSubmersionManager()
     private var isRunning = false
     private let logPrefix = "[WaterSubmersion]"
+    private let depthEpsilon: Double = 0.02
+    private let tempEpsilon: Double = 0.1
 
     func start() {
         errorDescription = nil
         guard !isRunning else { return }
         let available = CMWaterSubmersionManager.waterSubmersionAvailable
         let auth = CMWaterSubmersionManager.authorizationStatus
-        print("\(logPrefix) start requested. available=\(available), auth=\(auth.rawValue)")
-
         guard available else {
             errorDescription = "Water submersion data is not available on this device."
-            print("\(logPrefix) start aborted: unavailable")
             return
         }
 
         switch auth {
         case .denied, .restricted:
             errorDescription = "Motion & Fitness permission is required to read water depth."
-            print("\(logPrefix) start aborted: auth \(auth.rawValue)")
             return
         default:
             break
@@ -52,7 +50,6 @@ final class WaterSubmersionManager: NSObject, ObservableObject {
         depthState = .unknown
         isSubmerged = false
         waterTemperatureCelsius = nil
-        print("\(logPrefix) stopped")
     }
 }
 
@@ -64,37 +61,38 @@ extension WaterSubmersionManager: CMWaterSubmersionManagerDelegate {
                 self.depthMeters = 0
                 self.waterTemperatureCelsius = nil
             }
-            print("\(self.logPrefix) event state=\(event.state.rawValue), submerged=\(self.isSubmerged)")
         }
     }
 
     func manager(_ manager: CMWaterSubmersionManager, didUpdate measurement: CMWaterSubmersionMeasurement) {
         let depthValue = measurement.depth?.converted(to: .meters).value ?? 0
         DispatchQueue.main.async {
-            self.depthMeters = max(0, depthValue)
+            let clamped = max(0, depthValue)
+            if abs(clamped - self.depthMeters) < self.depthEpsilon,
+               self.depthState == measurement.submersionState {
+                return
+            }
+            self.depthMeters = clamped
             self.depthState = measurement.submersionState
             self.isSubmerged = measurement.submersionState != .notSubmerged && depthValue > 0
-            let maxDepth = manager.maximumDepth?.converted(to: .meters).value
-            let maxDepthString = maxDepth.map { "\($0)m" } ?? "nil"
-            print("\(self.logPrefix) measurement depth=\(self.depthMeters)m state=\(self.depthState.rawValue) maxDepth=\(maxDepthString)")
         }
     }
 
     func manager(_ manager: CMWaterSubmersionManager, didUpdate measurement: CMWaterTemperature) {
         let temperatureCelsius = measurement.temperature.converted(to: .celsius).value
         DispatchQueue.main.async {
+            if let current = self.waterTemperatureCelsius,
+               abs(current - temperatureCelsius) < self.tempEpsilon {
+                return
+            }
             self.waterTemperatureCelsius = temperatureCelsius
-            print("\(self.logPrefix) temperature=\(temperatureCelsius)C")
         }
     }
 
     func manager(_ manager: CMWaterSubmersionManager, errorOccurred error: Error) {
         DispatchQueue.main.async {
             self.errorDescription = error.localizedDescription
-            //print more detailed error info
-            print("\(self.logPrefix) error details: \(error)")
             self.stop()
-            print("\(self.logPrefix) error=\(error.localizedDescription)")
         }
     }
 }

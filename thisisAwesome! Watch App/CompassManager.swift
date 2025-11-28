@@ -13,14 +13,17 @@ final class CompassManager: NSObject, ObservableObject {
     @Published var errorDescription: String?
 
     private let locationManager = CLLocationManager()
+    private var isRunning = false
+    private let headingEpsilon: Double = 0.8
 
     override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.headingFilter = kCLHeadingFilterNone
+        locationManager.headingFilter = 1 // reduce churn while keeping responsiveness
     }
 
     func start() {
+        guard !isRunning else { return }
         errorDescription = nil
         guard CLLocationManager.headingAvailable() else {
             errorDescription = "Compass data is not available on this device."
@@ -37,11 +40,13 @@ final class CompassManager: NSObject, ObservableObject {
             break
         }
 
+        isRunning = true
         locationManager.startUpdatingHeading()
     }
 
     func stop() {
         locationManager.stopUpdatingHeading()
+        isRunning = false
     }
 
     private static func cardinalDirection(for angle: Double) -> String {
@@ -58,6 +63,10 @@ extension CompassManager: CLLocationManagerDelegate {
         let normalized = (heading.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
 
         DispatchQueue.main.async {
+            if let current = self.headingDegrees,
+               abs(current - normalized) < self.headingEpsilon {
+                return
+            }
             self.headingDegrees = normalized
             self.headingDirection = Self.cardinalDirection(for: normalized)
         }

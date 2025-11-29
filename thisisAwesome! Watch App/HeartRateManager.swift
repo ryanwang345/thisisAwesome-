@@ -48,12 +48,44 @@ final class HeartRateManager: NSObject, ObservableObject {
         guard isRunning else { return }
         workoutSession?.end()
         workoutBuilder?.endCollection(withEnd: Date()) { _, _ in }
-        workoutSession?.delegate = nil
-        workoutBuilder?.delegate = nil
-        workoutBuilder?.dataSource = nil
-        workoutSession = nil
-        workoutBuilder = nil
-        isRunning = false
+        cleanupSession()
+    }
+
+    /// Completes the workout and persists it to Health / Fitness, attaching depth metadata.
+    func completeDive(startDate: Date, endDate: Date, maxDepthMeters: Double) {
+        guard isRunning, let builder = workoutBuilder else {
+            saveDiveResultLegacy(startDate: startDate,
+                                 endDate: endDate,
+                                 maxDepthMeters: maxDepthMeters)
+            return
+        }
+
+        workoutSession?.end()
+        builder.endCollection(withEnd: endDate) { [weak self] _, error in
+            guard let self else { return }
+            if let error {
+                print("Failed to end collection: \(error.localizedDescription)")
+            }
+
+            builder.finishWorkout { workout, finishError in
+                if let finishError {
+                    print("Failed to finish workout: \(finishError.localizedDescription)")
+                }
+
+                if let depthSample = self.depthSample(maxDepthMeters: maxDepthMeters,
+                                                      startDate: startDate,
+                                                      endDate: endDate) {
+                    builder.add([depthSample]) { success, addError in
+                        if !success || addError != nil {
+                            let message = addError?.localizedDescription ?? "unknown error"
+                            print("Failed to add depth sample to builder: \(message)")
+                        }
+                    }
+                }
+
+                self.cleanupSession()
+            }
+        }
     }
 
     // MARK: - Private
@@ -94,7 +126,7 @@ final class HeartRateManager: NSObject, ObservableObject {
         }
     }
 
-    func saveDiveResult(startDate: Date, endDate: Date, maxDepthMeters: Double) {
+    private func saveDiveResultLegacy(startDate: Date, endDate: Date, maxDepthMeters: Double) {
         let activity: HKWorkoutActivityType
         if #available(watchOS 10.0, *) {
             activity = .underwaterDiving
@@ -185,6 +217,30 @@ final class HeartRateManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    private func depthSample(maxDepthMeters: Double,
+                             startDate: Date,
+                             endDate: Date) -> HKQuantitySample? {
+        guard maxDepthMeters > 0,
+              let depthType = HKObjectType.quantityType(forIdentifier: .underwaterDepth) else {
+            return nil
+        }
+        let depthQuantity = HKQuantity(unit: .meter(), doubleValue: maxDepthMeters)
+        return HKQuantitySample(type: depthType,
+                                quantity: depthQuantity,
+                                start: startDate,
+                                end: endDate)
+    }
+
+    private func cleanupSession() {
+        workoutSession?.delegate = nil
+        workoutBuilder?.delegate = nil
+        workoutBuilder?.dataSource = nil
+        workoutSession = nil
+        workoutBuilder = nil
+        currentStartDate = nil
+        isRunning = false
     }
 }
 

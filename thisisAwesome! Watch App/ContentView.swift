@@ -251,11 +251,12 @@ struct ContentView: View {
         timer?.invalidate()
         timer = nil
 
-        heartRateManager.stop()
         if let startDate = diveStartDate {
-            heartRateManager.saveDiveResult(startDate: startDate,
-                                            endDate: endDate,
-                                            maxDepthMeters: maxDepth)
+            heartRateManager.completeDive(startDate: startDate,
+                                          endDate: endDate,
+                                          maxDepthMeters: maxDepth)
+        } else {
+            heartRateManager.stop()
         }
         diveStartDate = nil
     }

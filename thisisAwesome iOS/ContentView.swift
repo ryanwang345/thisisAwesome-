@@ -1,10 +1,13 @@
 import SwiftUI
 import Charts
+import UIKit
 
 struct ContentView: View {
     @StateObject private var connectivity = PhoneConnectivityManager()
     private let primaryText = Color(red: 0.05, green: 0.08, blue: 0.15)
     private let secondaryText = Color(red: 0.30, green: 0.34, blue: 0.40)
+    @State private var selectedDepthTime: Double?
+    @State private var selectedHeartTime: Double?
 
     var body: some View {
         NavigationStack {
@@ -156,12 +159,111 @@ struct ContentView: View {
         let chartPoints = baseSamples.map { ChartPoint(id: $0.id, seconds: $0.seconds, depthMeters: $0.depthMeters, plotDepth: -$0.depthMeters) }
         let maxDepth = max(chartPoints.map { $0.depthMeters }.max() ?? 0, dive.maxDepthMeters)
         let duration = max(chartPoints.map { $0.seconds }.max() ?? 0, dive.durationSeconds)
+        let selected = selectedDepthTime.flatMap { time in nearestDepthSample(for: chartPoints, at: time) }
         let cardBackground = Color(red: 0.09, green: 0.10, blue: 0.15)
         let border = Color.white.opacity(0.08)
         let lineGradient = LinearGradient(colors: [.cyan, .green, .yellow, .orange], startPoint: .leading, endPoint: .trailing)
         let fillGradient = LinearGradient(colors: [Color.cyan.opacity(0.32), Color.blue.opacity(0.12)], startPoint: .top, endPoint: .bottom)
         let xStride = duration > 900 ? 300 : (duration > 480 ? 120 : 60)
         let yDomain = (-(maxDepth + 2))...0
+
+        let chartBody = Chart {
+            ForEach(chartPoints) { sample in
+                AreaMark(
+                    x: .value("Time", sample.seconds),
+                    y: .value("Depth", sample.plotDepth)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(fillGradient)
+            }
+
+            ForEach(chartPoints) { sample in
+                LineMark(
+                    x: .value("Time", sample.seconds),
+                    y: .value("Depth", sample.plotDepth)
+                )
+                .interpolationMethod(.catmullRom)
+                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(lineGradient)
+            }
+
+            if let selected {
+                RuleMark(x: .value("Time", selected.seconds))
+                    .foregroundStyle(.white.opacity(0.35))
+                PointMark(
+                    x: .value("Time", selected.seconds),
+                    y: .value("Depth", selected.plotDepth)
+                )
+                .symbolSize(90)
+                .foregroundStyle(.white)
+                .annotation(position: .topLeading, alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(formattedElapsed(selected.seconds))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text(String(format: "%.1f m", selected.depthMeters))
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.65))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+        .chartYScale(domain: yDomain)
+        .chartXAxis {
+            let tickValues: [Double] = Array(stride(from: 0.0, through: max(duration, 1.0), by: Double(xStride)))
+            AxisMarks(values: tickValues) { value in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let seconds = value.as(Double.self) {
+                        Text(formattedElapsed(seconds))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: depthTicks(maxDepth: maxDepth)) { value in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let depth = value.as(Double.self) {
+                        Text(String(format: "%.0f m", abs(depth)))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                }
+            }
+        }
+        .frame(height: 240)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                if let anchor = proxy.plotFrame {
+                    let frame = geo[anchor]
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    let x = value.location.x - frame.minX
+                                    guard x >= 0, x <= frame.width,
+                                          let time: Double = proxy.value(atX: x) else { return }
+                                    selectedDepthTime = time
+                                }
+                                .onEnded { _ in
+                                    selectedDepthTime = nil
+                                }
+                        )
+                } else {
+                    Color.clear
+                }
+            }
+        }
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -174,55 +276,7 @@ struct ContentView: View {
             }
 
             if chartPoints.count > 1 {
-                Chart {
-                    ForEach(chartPoints) { sample in
-                        AreaMark(
-                            x: .value("Time", sample.seconds),
-                            y: .value("Depth", sample.plotDepth)
-                        )
-                        .interpolationMethod(.catmullRom)
-                        .foregroundStyle(fillGradient)
-                    }
-
-                    ForEach(chartPoints) { sample in
-                        LineMark(
-                            x: .value("Time", sample.seconds),
-                            y: .value("Depth", sample.plotDepth)
-                        )
-                        .interpolationMethod(.catmullRom)
-                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                        .foregroundStyle(lineGradient)
-                    }
-                }
-                .chartXScale(domain: 0...(duration > 0 ? duration : 1))
-                .chartYScale(domain: yDomain)
-                .chartXAxis {
-                    // Provide explicit numeric tick positions to avoid Calendar.Component overload
-                    let tickValues: [Double] = Array(stride(from: 0.0, through: max(duration, 1.0), by: Double(xStride)))
-                    AxisMarks(values: tickValues) { value in
-                        AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                        AxisTick().foregroundStyle(Color.white.opacity(0.25))
-                        AxisValueLabel {
-                            if let seconds = value.as(Double.self) {
-                                Text(formattedElapsed(seconds))
-                                    .foregroundStyle(.white.opacity(0.75))
-                            }
-                        }
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: depthTicks(maxDepth: maxDepth)) { value in
-                        AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                        AxisTick().foregroundStyle(Color.white.opacity(0.25))
-                        AxisValueLabel {
-                            if let depth = value.as(Double.self) {
-                                Text(String(format: "%.0f m", abs(depth)))
-                                    .foregroundStyle(.white.opacity(0.75))
-                            }
-                        }
-                    }
-                }
-                .frame(height: 240)
+                chartBody
             } else {
                 Text("We didn't receive a depth trace for this dive yet.")
                     .font(.footnote)
@@ -328,6 +382,14 @@ struct ContentView: View {
         let plotDepth: Double
     }
 
+    private func nearestDepthSample(for samples: [ChartPoint], at time: Double) -> ChartPoint? {
+        samples.min(by: { abs($0.seconds - time) < abs($1.seconds - time) })
+    }
+
+    private func nearestHeartSample(for samples: [HeartRateSample], at time: Double) -> HeartRateSample? {
+        samples.min(by: { abs($0.seconds - time) < abs($1.seconds - time) })
+    }
+
     @ViewBuilder
     private func heartRateChart(_ dive: DiveSummary) -> some View {
         let samples = dive.heartRateSamples.sorted { $0.seconds < $1.seconds }
@@ -359,6 +421,151 @@ struct ContentView: View {
             let maxSample = samples.max(by: { $0.bpm < $1.bpm })
             let lastSample = samples.last
             let lowBpm = minSample?.bpm ?? 0
+            let selected = selectedHeartTime.flatMap { nearestHeartSample(for: samples, at: $0) }
+
+            let chartBody = Chart {
+                ForEach(samples) { sample in
+                    AreaMark(
+                        x: .value("Time", sample.seconds),
+                        y: .value("BPM", sample.bpm)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(gradient.opacity(0.25))
+
+                    LineMark(
+                        x: .value("Time", sample.seconds),
+                        y: .value("BPM", sample.bpm)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .foregroundStyle(gradient)
+                }
+
+                if let minSample {
+                    PointMark(
+                        x: .value("Time", minSample.seconds),
+                        y: .value("BPM", minSample.bpm)
+                    )
+                    .foregroundStyle(.green)
+                    .symbolSize(60)
+                    .annotation(position: .topLeading, alignment: .leading) {
+                        Text("Low \(minSample.bpm)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if let maxSample {
+                    PointMark(
+                        x: .value("Time", maxSample.seconds),
+                        y: .value("BPM", maxSample.bpm)
+                    )
+                    .foregroundStyle(.orange)
+                    .symbolSize(60)
+                    .annotation(position: .topLeading, alignment: .leading) {
+                        Text("High \(maxSample.bpm)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if let lastSample {
+                    PointMark(
+                        x: .value("Time", lastSample.seconds),
+                        y: .value("BPM", lastSample.bpm)
+                    )
+                    .foregroundStyle(.red)
+                    .symbolSize(70)
+                    .annotation(position: .bottom, alignment: .trailing) {
+                        Text("Last \(lastSample.bpm)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if let selected {
+                    RuleMark(x: .value("Time", selected.seconds))
+                        .foregroundStyle(.red.opacity(0.35))
+                    PointMark(
+                        x: .value("Time", selected.seconds),
+                        y: .value("BPM", selected.bpm)
+                    )
+                    .foregroundStyle(.white)
+                    .symbolSize(80)
+                    .annotation(position: .top, alignment: .center) {
+                        VStack(spacing: 4) {
+                            Text(formattedElapsed(selected.seconds))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(primaryText)
+                            Text("\(selected.bpm) bpm")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+                    }
+                }
+            }
+            .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+            .chartYScale(domain: 0...yMaxScale)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: xStride)) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel {
+                        if let seconds = value.as(Double.self) {
+                            Text(formattedElapsed(seconds))
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: yTicks) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel()
+                }
+            }
+            .frame(height: 200)
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    if let anchor = proxy.plotFrame {
+                        let frame = geo[anchor]
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let x = value.location.x - frame.minX
+                                        guard x >= 0, x <= frame.width,
+                                              let time: Double = proxy.value(atX: x) else { return }
+                                        selectedHeartTime = time
+                                    }
+                                    .onEnded { _ in
+                                        selectedHeartTime = nil
+                                    }
+                            )
+                    } else {
+                        Color.clear
+                    }
+                }
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -368,100 +575,7 @@ struct ContentView: View {
                     Spacer()
                     capsuleStat(label: "Avg", value: "\(Int(avgBpm.rounded())) bpm", color: Color.orange)
                 }
-
-                Chart {
-                    ForEach(samples) { sample in
-                        AreaMark(
-                            x: .value("Time", sample.seconds),
-                            y: .value("BPM", sample.bpm)
-                        )
-                        .interpolationMethod(.catmullRom)
-                        .foregroundStyle(gradient.opacity(0.25))
-
-                        LineMark(
-                            x: .value("Time", sample.seconds),
-                            y: .value("BPM", sample.bpm)
-                        )
-                        .interpolationMethod(.catmullRom)
-                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                        .foregroundStyle(gradient)
-                    }
-
-                     if let minSample {
-                         PointMark(
-                             x: .value("Time", minSample.seconds),
-                             y: .value("BPM", minSample.bpm)
-                         )
-                         .foregroundStyle(.green)
-                         .symbolSize(60)
-                         .annotation(position: .topLeading, alignment: .leading) {
-                             Text("Low \(minSample.bpm)")
-                                 .font(.caption2.weight(.semibold))
-                                 .foregroundStyle(.green)
-                                 .padding(.horizontal, 6)
-                                 .padding(.vertical, 2)
-                                 .background(Color.green.opacity(0.12))
-                                 .clipShape(Capsule())
-                         }
-                     }
-
-                     if let maxSample {
-                         PointMark(
-                             x: .value("Time", maxSample.seconds),
-                             y: .value("BPM", maxSample.bpm)
-                         )
-                         .foregroundStyle(.orange)
-                         .symbolSize(60)
-                         .annotation(position: .topLeading, alignment: .leading) {
-                             Text("High \(maxSample.bpm)")
-                                 .font(.caption2.weight(.semibold))
-                                 .foregroundStyle(.orange)
-                                 .padding(.horizontal, 6)
-                                 .padding(.vertical, 2)
-                                 .background(Color.orange.opacity(0.12))
-                                 .clipShape(Capsule())
-                         }
-                     }
-
-                     if let lastSample {
-                         PointMark(
-                             x: .value("Time", lastSample.seconds),
-                             y: .value("BPM", lastSample.bpm)
-                         )
-                         .foregroundStyle(.red)
-                         .symbolSize(70)
-                         .annotation(position: .bottom, alignment: .trailing) {
-                             Text("Last \(lastSample.bpm)")
-                                 .font(.caption2.weight(.semibold))
-                                 .foregroundStyle(.red)
-                                 .padding(.horizontal, 6)
-                                 .padding(.vertical, 2)
-                                 .background(Color.red.opacity(0.12))
-                                 .clipShape(Capsule())
-                         }
-                     }
-                }
-                .chartXScale(domain: 0...(duration > 0 ? duration : 1))
-                .chartYScale(domain: 0...yMaxScale)
-                .chartXAxis {
-                    AxisMarks(values: .stride(by: xStride)) { value in
-                        AxisGridLine()
-                        AxisTick()
-                        AxisValueLabel {
-                            if let seconds = value.as(Double.self) {
-                                Text(formattedElapsed(seconds))
-                            }
-                        }
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: yTicks) { value in
-                        AxisGridLine()
-                        AxisTick()
-                        AxisValueLabel()
-                    }
-                }
-                .frame(height: 200)
+                chartBody
             }
             .padding(.top, 6)
         }

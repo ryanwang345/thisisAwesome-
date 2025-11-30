@@ -100,6 +100,7 @@ struct ContentView: View {
             }
 
             diveProfileChart(dive)
+            heartRateChart(dive)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -271,11 +272,173 @@ struct ContentView: View {
         }
     }
 
+    private func capsuleStat(label: String, value: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.12))
+                .clipShape(Capsule())
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(primaryText)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.white)
+        .overlay(
+            Capsule().stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+    }
+
     private struct ChartPoint: Identifiable {
         let id: UUID
         let seconds: Double
         let depthMeters: Double
         let plotDepth: Double
+    }
+
+    @ViewBuilder
+    private func heartRateChart(_ dive: DiveSummary) -> some View {
+        let samples = dive.heartRateSamples.sorted { $0.seconds < $1.seconds }
+
+        if samples.count <= 1 {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Heart rate")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(primaryText)
+                    Spacer()
+                }
+                Text("No heart rate samples recorded for this dive.")
+                    .font(.footnote)
+                    .foregroundStyle(secondaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+        } else {
+            let maxBpm = max(samples.map(\.bpm).max() ?? 0, 60)
+            let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
+            let avgBpm = Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)
+            let gradient = LinearGradient(colors: [.red.opacity(0.8), .pink.opacity(0.7)], startPoint: .leading, endPoint: .trailing)
+            let xStride = duration > 300 ? 60.0 : 30.0
+            let yMax = Double(maxBpm) + 10
+            let yMaxScale = max(yMax, 20)
+            let yTicks = stride(from: 0.0, through: yMaxScale, by: 20.0).map { $0 }
+            let minSample = samples.min(by: { $0.bpm < $1.bpm })
+            let maxSample = samples.max(by: { $0.bpm < $1.bpm })
+            let lastSample = samples.last
+            let lowBpm = minSample?.bpm ?? 0
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Heart rate")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(primaryText)
+                    Spacer()
+                    capsuleStat(label: "Avg", value: "\(Int(avgBpm.rounded())) bpm", color: Color.orange)
+                }
+
+                Chart {
+                    ForEach(samples) { sample in
+                        AreaMark(
+                            x: .value("Time", sample.seconds),
+                            y: .value("BPM", sample.bpm)
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(gradient.opacity(0.25))
+
+                        LineMark(
+                            x: .value("Time", sample.seconds),
+                            y: .value("BPM", sample.bpm)
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        .foregroundStyle(gradient)
+                    }
+
+                     if let minSample {
+                         PointMark(
+                             x: .value("Time", minSample.seconds),
+                             y: .value("BPM", minSample.bpm)
+                         )
+                         .foregroundStyle(.green)
+                         .symbolSize(60)
+                         .annotation(position: .topLeading, alignment: .leading) {
+                             Text("Low \(minSample.bpm)")
+                                 .font(.caption2.weight(.semibold))
+                                 .foregroundStyle(.green)
+                                 .padding(.horizontal, 6)
+                                 .padding(.vertical, 2)
+                                 .background(Color.green.opacity(0.12))
+                                 .clipShape(Capsule())
+                         }
+                     }
+
+                     if let maxSample {
+                         PointMark(
+                             x: .value("Time", maxSample.seconds),
+                             y: .value("BPM", maxSample.bpm)
+                         )
+                         .foregroundStyle(.orange)
+                         .symbolSize(60)
+                         .annotation(position: .topLeading, alignment: .leading) {
+                             Text("High \(maxSample.bpm)")
+                                 .font(.caption2.weight(.semibold))
+                                 .foregroundStyle(.orange)
+                                 .padding(.horizontal, 6)
+                                 .padding(.vertical, 2)
+                                 .background(Color.orange.opacity(0.12))
+                                 .clipShape(Capsule())
+                         }
+                     }
+
+                     if let lastSample {
+                         PointMark(
+                             x: .value("Time", lastSample.seconds),
+                             y: .value("BPM", lastSample.bpm)
+                         )
+                         .foregroundStyle(.red)
+                         .symbolSize(70)
+                         .annotation(position: .bottom, alignment: .trailing) {
+                             Text("Last \(lastSample.bpm)")
+                                 .font(.caption2.weight(.semibold))
+                                 .foregroundStyle(.red)
+                                 .padding(.horizontal, 6)
+                                 .padding(.vertical, 2)
+                                 .background(Color.red.opacity(0.12))
+                                 .clipShape(Capsule())
+                         }
+                     }
+                }
+                .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+                .chartYScale(domain: 0...yMaxScale)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: xStride)) { value in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel {
+                            if let seconds = value.as(Double.self) {
+                                Text(formattedElapsed(seconds))
+                            }
+                        }
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: yTicks) { value in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel()
+                    }
+                }
+                .frame(height: 200)
+            }
+            .padding(.top, 6)
+        }
     }
 }
 

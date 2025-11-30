@@ -9,6 +9,7 @@ struct DiveSummary: Identifiable, Codable {
     let endingHeartRate: Int?
     let waterTemperatureCelsius: Double?
     let profile: [DiveSample]
+    let heartRateSamples: [HeartRateSample]
 
     init(id: UUID = UUID(),
          startDate: Date,
@@ -17,7 +18,8 @@ struct DiveSummary: Identifiable, Codable {
          durationSeconds: Double,
          endingHeartRate: Int?,
          waterTemperatureCelsius: Double?,
-         profile: [DiveSample] = []) {
+         profile: [DiveSample] = [],
+         heartRateSamples: [HeartRateSample] = []) {
         self.id = id
         self.startDate = startDate
         self.endDate = endDate
@@ -26,6 +28,7 @@ struct DiveSummary: Identifiable, Codable {
         self.endingHeartRate = endingHeartRate
         self.waterTemperatureCelsius = waterTemperatureCelsius
         self.profile = profile
+        self.heartRateSamples = heartRateSamples
     }
 
     init?(userInfo: [String: Any]) {
@@ -41,6 +44,8 @@ struct DiveSummary: Identifiable, Codable {
         let rawId = (userInfo["id"] as? String).flatMap(UUID.init) ?? UUID()
         let rawProfile = userInfo["profile"] as? [[String: Any]] ?? []
         let samples = DiveSummary.decodeProfile(rawProfile)
+        let rawHeartRates = userInfo["heartRateSamples"] as? [[String: Any]] ?? []
+        let hrSamples = DiveSummary.decodeHeartRates(rawHeartRates)
 
         self.init(id: rawId,
                   startDate: Date(timeIntervalSince1970: start),
@@ -49,11 +54,12 @@ struct DiveSummary: Identifiable, Codable {
                   durationSeconds: duration,
                   endingHeartRate: heartRate,
                   waterTemperatureCelsius: waterTemp,
-                  profile: samples)
+                  profile: samples,
+                  heartRateSamples: hrSamples)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, startDate, endDate, maxDepthMeters, durationSeconds, endingHeartRate, waterTemperatureCelsius, profile
+        case id, startDate, endDate, maxDepthMeters, durationSeconds, endingHeartRate, waterTemperatureCelsius, profile, heartRateSamples
     }
 
     init(from decoder: Decoder) throws {
@@ -66,6 +72,7 @@ struct DiveSummary: Identifiable, Codable {
         endingHeartRate = try container.decodeIfPresent(Int.self, forKey: .endingHeartRate)
         waterTemperatureCelsius = try container.decodeIfPresent(Double.self, forKey: .waterTemperatureCelsius)
         profile = try container.decodeIfPresent([DiveSample].self, forKey: .profile) ?? []
+        heartRateSamples = try container.decodeIfPresent([HeartRateSample].self, forKey: .heartRateSamples) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -78,6 +85,7 @@ struct DiveSummary: Identifiable, Codable {
         try container.encodeIfPresent(endingHeartRate, forKey: .endingHeartRate)
         try container.encodeIfPresent(waterTemperatureCelsius, forKey: .waterTemperatureCelsius)
         try container.encode(profile, forKey: .profile)
+        try container.encode(heartRateSamples, forKey: .heartRateSamples)
     }
 
     var durationText: String {
@@ -103,6 +111,18 @@ struct DiveSample: Identifiable, Codable {
     }
 }
 
+struct HeartRateSample: Identifiable, Codable {
+    let id: UUID
+    let seconds: Double
+    let bpm: Int
+
+    init(id: UUID = UUID(), seconds: Double, bpm: Int) {
+        self.id = id
+        self.seconds = seconds
+        self.bpm = bpm
+    }
+}
+
 private extension DiveSummary {
     static func decodeProfile(_ rawProfile: [[String: Any]]) -> [DiveSample] {
         rawProfile.compactMap { dict in
@@ -112,6 +132,17 @@ private extension DiveSummary {
             }
             let rawId = (dict["id"] as? String).flatMap(UUID.init) ?? UUID()
             return DiveSample(id: rawId, seconds: seconds, depthMeters: depth)
+        }
+    }
+
+    static func decodeHeartRates(_ raw: [[String: Any]]) -> [HeartRateSample] {
+        raw.compactMap { dict in
+            guard let seconds = dict["seconds"] as? Double,
+                  let bpm = dict["bpm"] as? Int else {
+                return nil
+            }
+            let rawId = (dict["id"] as? String).flatMap(UUID.init) ?? UUID()
+            return HeartRateSample(id: rawId, seconds: seconds, bpm: bpm)
         }
     }
 }

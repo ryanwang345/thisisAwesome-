@@ -26,8 +26,11 @@ struct ContentView: View {
     @State private var diveStartDate: Date?
     @State private var profileSamples: [DiveSample] = []
     @State private var lastSampleTime: TimeInterval = 0
+    @State private var heartRateSamples: [HeartRateSample] = []
+    @State private var lastHeartSampleTime: TimeInterval = 0
     private let autoStartDepthThreshold: Double = 0.0  // meters
     private let sampleInterval: TimeInterval = 1.5
+    private let heartRateSampleInterval: TimeInterval = 5.0
 
     @StateObject private var heartRateManager = HeartRateManager()
     @StateObject private var waterManager = ActiveWaterSubmersionManager()
@@ -205,6 +208,9 @@ struct ContentView: View {
                 stopDive()
             }
         }
+        .onReceive(heartRateManager.$heartRate) { bpm in
+            recordHeartRateSample(bpm: bpm)
+        }
     }
 
     // MARK: - Helpers
@@ -260,6 +266,8 @@ struct ContentView: View {
         maxDepth = startingDepth
         profileSamples = [DiveSample(seconds: 0, depthMeters: startingDepth)]
         lastSampleTime = 0
+        heartRateSamples = []
+        lastHeartSampleTime = 0
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -287,7 +295,8 @@ struct ContentView: View {
                                       durationSeconds: diveTime,
                                       endingHeartRate: heartRateManager.heartRate > 0 ? heartRateManager.heartRate : nil,
                                       waterTemperatureCelsius: waterManager.waterTemperatureCelsius,
-                                      profile: profileSamples)
+                                      profile: profileSamples,
+                                      heartRateSamples: heartRateSamples)
             syncManager.send(summary)
 
             heartRateManager.completeDive(startDate: startDate,
@@ -299,6 +308,8 @@ struct ContentView: View {
         diveStartDate = nil
         profileSamples = []
         lastSampleTime = 0
+        heartRateSamples = []
+        lastHeartSampleTime = 0
     }
 
     private func changeDepth(by delta: Double) {
@@ -341,6 +352,19 @@ struct ContentView: View {
             || abs(clampedDepth - lastDepth) >= 0.4 {
             profileSamples.append(DiveSample(seconds: elapsed, depthMeters: clampedDepth))
             lastSampleTime = elapsed
+        }
+    }
+
+    private func recordHeartRateSample(bpm: Int) {
+        guard isDiving, bpm > 0, let start = diveStartDate else { return }
+        let elapsed = Date().timeIntervalSince(start)
+        let lastBpm = heartRateSamples.last?.bpm ?? bpm
+
+        if heartRateSamples.isEmpty
+            || elapsed - lastHeartSampleTime >= heartRateSampleInterval
+            || abs(lastBpm - bpm) >= 3 {
+            heartRateSamples.append(HeartRateSample(seconds: elapsed, bpm: bpm))
+            lastHeartSampleTime = elapsed
         }
     }
 }

@@ -41,8 +41,18 @@ final class DiveSyncManager: NSObject, ObservableObject {
                     self?.lastErrorMessage = error.localizedDescription
                 }
             }
-        } else if !session.isPaired || !session.isWatchAppInstalled {
+        } else {
+            #if os(iOS)
+            if !session.isPaired || !session.isWatchAppInstalled {
+                lastErrorMessage = "Paired Apple Watch is unavailable."
+            } else {
+                lastErrorMessage = "Paired iPhone is unavailable."
+            }
+            #else
+            // On watchOS, `isPaired` and `isWatchAppInstalled` are unavailable.
+            // If not reachable, report a generic connectivity issue.
             lastErrorMessage = "Paired iPhone is unavailable."
+            #endif
         }
     }
 }

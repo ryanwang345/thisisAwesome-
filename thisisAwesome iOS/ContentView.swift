@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct ContentView: View {
     @StateObject private var connectivity = PhoneConnectivityManager()
@@ -97,6 +98,8 @@ struct ContentView: View {
                 Spacer()
                 stat(label: "Water temp", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--")
             }
+
+            diveProfileChart(dive)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,6 +122,160 @@ struct ContentView: View {
                 .foregroundStyle(primaryText)
                 .monospacedDigit()
         }
+    }
+
+    private func diveProfileChart(_ dive: DiveSummary) -> some View {
+        let baseSamples = profilePoints(for: dive)
+        let chartPoints = baseSamples.map { ChartPoint(id: $0.id, seconds: $0.seconds, depthMeters: $0.depthMeters, plotDepth: -$0.depthMeters) }
+        let maxDepth = max(chartPoints.map { $0.depthMeters }.max() ?? 0, dive.maxDepthMeters)
+        let duration = max(chartPoints.map { $0.seconds }.max() ?? 0, dive.durationSeconds)
+        let cardBackground = Color(red: 0.09, green: 0.10, blue: 0.15)
+        let border = Color.white.opacity(0.08)
+        let lineGradient = LinearGradient(colors: [.cyan, .green, .yellow, .orange], startPoint: .leading, endPoint: .trailing)
+        let fillGradient = LinearGradient(colors: [Color.cyan.opacity(0.32), Color.blue.opacity(0.12)], startPoint: .top, endPoint: .bottom)
+        let xStride = duration > 900 ? 300 : (duration > 480 ? 120 : 60)
+        let yDomain = (-(maxDepth + 2))...0
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Dive profile")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: "waveform.path.ecg")
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+
+            if chartPoints.count > 1 {
+                Chart {
+                    ForEach(chartPoints) { sample in
+                        AreaMark(
+                            x: .value("Time", sample.seconds),
+                            y: .value("Depth", sample.plotDepth)
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(fillGradient)
+                    }
+
+                    ForEach(chartPoints) { sample in
+                        LineMark(
+                            x: .value("Time", sample.seconds),
+                            y: .value("Depth", sample.plotDepth)
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        .foregroundStyle(lineGradient)
+                    }
+                }
+                .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+                .chartYScale(domain: yDomain)
+                .chartXAxis {
+                    // Provide explicit numeric tick positions to avoid Calendar.Component overload
+                    let tickValues: [Double] = Array(stride(from: 0.0, through: max(duration, 1.0), by: Double(xStride)))
+                    AxisMarks(values: tickValues) { value in
+                        AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                        AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                        AxisValueLabel {
+                            if let seconds = value.as(Double.self) {
+                                Text(formattedElapsed(seconds))
+                                    .foregroundStyle(.white.opacity(0.75))
+                            }
+                        }
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: depthTicks(maxDepth: maxDepth)) { value in
+                        AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                        AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                        AxisValueLabel {
+                            if let depth = value.as(Double.self) {
+                                Text(String(format: "%.0f m", abs(depth)))
+                                    .foregroundStyle(.white.opacity(0.75))
+                            }
+                        }
+                    }
+                }
+                .frame(height: 240)
+            } else {
+                Text("We didn't receive a depth trace for this dive yet.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+            }
+
+            HStack(spacing: 12) {
+                legendSwatch(color: .cyan, label: "Descent")
+                legendSwatch(color: .green, label: "Bottom")
+                legendSwatch(color: .yellow, label: "Ascent")
+                legendSwatch(color: .red.opacity(0.85), label: "Fast")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func profilePoints(for dive: DiveSummary) -> [DiveSample] {
+        if !dive.profile.isEmpty {
+            return dive.profile.sorted { $0.seconds < $1.seconds }
+        }
+
+        // Fallback shape so the UI still has a visual profile even if the watch did not send samples.
+        let duration = max(dive.durationSeconds, 600)
+        let stages: [(Double, Double)] = [
+            (0.05, 2),
+            (0.18, dive.maxDepthMeters * 0.35),
+            (0.35, dive.maxDepthMeters),
+            (0.55, dive.maxDepthMeters * 0.9),
+            (0.8, dive.maxDepthMeters * 0.2),
+            (1.0, 0)
+        ]
+        return stages.enumerated().map { idx, stage in
+            DiveSample(id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", idx))") ?? UUID(),
+                       seconds: duration * stage.0,
+                       depthMeters: stage.1)
+        }
+    }
+
+    private func depthTicks(maxDepth: Double) -> [Double] {
+        let step: Double
+        switch maxDepth {
+        case 0..<10: step = 2
+        case 10..<30: step = 5
+        default: step = 10
+        }
+        let maxTick = maxDepth + step
+        return stride(from: 0.0, through: maxTick, by: step).map { -$0 }
+    }
+
+    private func formattedElapsed(_ seconds: Double) -> String {
+        let minutes = Int(seconds) / 60
+        let remainder = Int(seconds) % 60
+        return String(format: "%02d:%02d", minutes, remainder)
+    }
+
+    private func legendSwatch(color: Color, label: String) -> some View {
+        HStack(spacing: 6) {
+            Capsule()
+                .fill(color)
+                .frame(width: 24, height: 6)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
+        }
+    }
+
+    private struct ChartPoint: Identifiable {
+        let id: UUID
+        let seconds: Double
+        let depthMeters: Double
+        let plotDepth: Double
     }
 }
 

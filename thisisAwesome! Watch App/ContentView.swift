@@ -24,7 +24,10 @@ struct ContentView: View {
     @State private var phase: DivePhase = .surface
     @State private var timer: Timer?
     @State private var diveStartDate: Date?
+    @State private var profileSamples: [DiveSample] = []
+    @State private var lastSampleTime: TimeInterval = 0
     private let autoStartDepthThreshold: Double = 0.0  // meters
+    private let sampleInterval: TimeInterval = 1.5
 
     @StateObject private var heartRateManager = HeartRateManager()
     @StateObject private var waterManager = WaterSubmersionManager()
@@ -249,11 +252,14 @@ struct ContentView: View {
         isDiving = true
         phase = .diving
         diveTime = 0
-        diveStartDate = Date()
+        let startDate = Date()
+        diveStartDate = startDate
 
         let startingDepth = max(0, initialDepth ?? 0)
         currentDepth = startingDepth
         maxDepth = startingDepth
+        profileSamples = [DiveSample(seconds: 0, depthMeters: startingDepth)]
+        lastSampleTime = 0
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -264,6 +270,9 @@ struct ContentView: View {
     }
 
     private func stopDive() {
+        if diveStartDate != nil {
+            recordDepthSample(depth: currentDepth, force: true)
+        }
         isDiving = false
         phase = .surface
         let endDate = Date()
@@ -277,7 +286,8 @@ struct ContentView: View {
                                       maxDepthMeters: maxDepth,
                                       durationSeconds: diveTime,
                                       endingHeartRate: heartRateManager.heartRate > 0 ? heartRateManager.heartRate : nil,
-                                      waterTemperatureCelsius: waterManager.waterTemperatureCelsius)
+                                      waterTemperatureCelsius: waterManager.waterTemperatureCelsius,
+                                      profile: profileSamples)
             syncManager.send(summary)
 
             heartRateManager.completeDive(startDate: startDate,
@@ -287,6 +297,8 @@ struct ContentView: View {
             heartRateManager.stop()
         }
         diveStartDate = nil
+        profileSamples = []
+        lastSampleTime = 0
     }
 
     private func changeDepth(by delta: Double) {
@@ -308,12 +320,28 @@ struct ContentView: View {
             maxDepth = currentDepth
             WKInterfaceDevice.current().play(.success) // Haptic when a new max depth is reached
         }
+        recordDepthSample(depth: depth)
     }
 
     private func formattedTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func recordDepthSample(depth: Double, force: Bool = false) {
+        guard let start = diveStartDate else { return }
+        let elapsed = Date().timeIntervalSince(start)
+        let clampedDepth = max(0, depth)
+        let lastDepth = profileSamples.last?.depthMeters ?? clampedDepth
+
+        if force
+            || profileSamples.isEmpty
+            || elapsed - lastSampleTime >= sampleInterval
+            || abs(clampedDepth - lastDepth) >= 0.4 {
+            profileSamples.append(DiveSample(seconds: elapsed, depthMeters: clampedDepth))
+            lastSampleTime = elapsed
+        }
     }
 }
 

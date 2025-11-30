@@ -20,11 +20,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>INIntentsSupported</key>
-	<array>
-		<string>Intent</string>
-		<string>Intent1</string>
-	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSHealthClinicalHealthRecordsShareUsageDescription</key>
@@ -42,6 +37,8 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>com.ryan-wang.thisisAwesome-</string>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKBackgroundModes</key>
@@ -49,7 +46,5 @@
 		<string>underwater-depth</string>
 		<string>workout-processing</string>
 	</array>
-	<key>WKWatchOnly</key>
-	<true/>
 </dict>
 </plist>

@@ -10,6 +10,11 @@
 		3511992E2ED1A8D9006A695B /* thisisAwesome! Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A662ED2EE5600859470 /* Accelerate.framework */; };
 		35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */; };
+		B1D9E0213E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */; };
+		B1D9E0223E9D4E5BB7D3F001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */; };
+		B1D9E0233E9D4E5BB7D3F001 /* DiveSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */; };
+		B1D9E0243E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */; };
+		B1D9E0253E9D4E5BB7D3F001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +47,12 @@
 		35FA8A662ED2EE5600859470 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/Accelerate.framework; sourceTree = DEVELOPER_DIR; };
 		35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTasks.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/BackgroundTasks.framework; sourceTree = DEVELOPER_DIR; };
 		35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/HealthKit.framework; sourceTree = DEVELOPER_DIR; };
+		B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = thisisAwesome_iOSApp.swift; sourceTree = "<group>"; };
+		B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveSummary.swift; sourceTree = "<group>"; };
+		B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneConnectivityManager.swift; sourceTree = "<group>"; };
+		B1D9E0063E9D4E5BB7D3F001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -62,6 +73,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1D9E0113E9D4E5BB7D3F001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -69,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				351199312ED1A8D9006A695B /* thisisAwesome! Watch App */,
+				B1D9E0013E9D4E5BB7D3F001 /* thisisAwesome iOS */,
 				35FA8A652ED2EE5500859470 /* Frameworks */,
 				351199282ED1A8D9006A695B /* Products */,
 			);
@@ -93,6 +112,19 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		B1D9E0013E9D4E5BB7D3F001 /* thisisAwesome iOS */ = {
+			isa = PBXGroup;
+			children = (
+				B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */,
+				B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */,
+				B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */,
+				B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */,
+				B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */,
+				B1D9E0063E9D4E5BB7D3F001 /* Info.plist */,
+			);
+			path = "thisisAwesome iOS";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -100,6 +132,8 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3511993E2ED1A8DB006A695B /* Build configuration list for PBXNativeTarget "thisisAwesome!" */;
 			buildPhases = (
+				B1D9E0103E9D4E5BB7D3F001 /* Sources */,
+				B1D9E0113E9D4E5BB7D3F001 /* Frameworks */,
 				351199252ED1A8D9006A695B /* Resources */,
 				3511993D2ED1A8DB006A695B /* Embed Watch Content */,
 			);
@@ -113,7 +147,7 @@
 			);
 			productName = "thisisAwesome!";
 			productReference = 351199272ED1A8D9006A695B /* thisisAwesome!.app */;
-			productType = "com.apple.product-type.application.watchapp2-container";
+			productType = "com.apple.product-type.application";
 		};
 		3511992C2ED1A8D9006A695B /* thisisAwesome! Watch App */ = {
 			isa = PBXNativeTarget;
@@ -180,6 +214,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1D9E0253E9D4E5BB7D3F001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -197,6 +232,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1D9E0103E9D4E5BB7D3F001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1D9E0213E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift in Sources */,
+				B1D9E0223E9D4E5BB7D3F001 /* ContentView.swift in Sources */,
+				B1D9E0233E9D4E5BB7D3F001 /* DiveSummary.swift in Sources */,
+				B1D9E0243E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,10 +453,16 @@
 		3511993F2ED1A8DB006A695B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = EXE73XVS27;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "thisisAwesome iOS/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "thisisAwesome!";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ryan-wang.thisisAwesome-";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -418,16 +470,23 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
 		351199402ED1A8DB006A695B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = EXE73XVS27;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "thisisAwesome iOS/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "thisisAwesome!";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.ryan-wang.thisisAwesome-";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -436,6 +495,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				VALIDATE_PRODUCT = YES;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

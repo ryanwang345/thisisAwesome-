@@ -29,6 +29,7 @@ struct ContentView: View {
     @StateObject private var heartRateManager = HeartRateManager()
     @StateObject private var waterManager = WaterSubmersionManager()
     @StateObject private var compassManager = CompassManager()
+    @StateObject private var syncManager = DiveSyncManager()
 
     var body: some View {
         ZStack {
@@ -149,6 +150,24 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(isDiving ? .red : .green)
+
+                        if let sent = syncManager.lastSentSummary {
+                            VStack(spacing: 2) {
+                                Text("Sent to iPhone")
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                                Text(sent.endDate, style: .time)
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.6))
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else if let error = syncManager.lastErrorMessage {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundStyle(.yellow)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 14)
@@ -164,6 +183,7 @@ struct ContentView: View {
         .onAppear {
             waterManager.start()
             compassManager.start()
+            syncManager.activate()
         }
         .onDisappear {
             timer?.invalidate()
@@ -252,6 +272,14 @@ struct ContentView: View {
         timer = nil
 
         if let startDate = diveStartDate {
+            let summary = DiveSummary(startDate: startDate,
+                                      endDate: endDate,
+                                      maxDepthMeters: maxDepth,
+                                      durationSeconds: diveTime,
+                                      endingHeartRate: heartRateManager.heartRate > 0 ? heartRateManager.heartRate : nil,
+                                      waterTemperatureCelsius: waterManager.waterTemperatureCelsius)
+            syncManager.send(summary)
+
             heartRateManager.completeDive(startDate: startDate,
                                           endDate: endDate,
                                           maxDepthMeters: maxDepth)

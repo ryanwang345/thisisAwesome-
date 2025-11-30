@@ -15,20 +15,22 @@ struct ContentView: View {
                 ], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .ignoresSafeArea()
 
-                VStack(spacing: 18) {
-                    header
+                ScrollView {
+                    VStack(spacing: 18) {
+                        header
 
-                    if let dive = connectivity.lastDive {
-                        diveCard(dive)
-                    } else {
-                        waitingCard
+                        if let dive = connectivity.lastDive {
+                            diveCard(dive)
+                        } else {
+                            waitingCard
+                        }
                     }
-
-                    Spacer()
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .padding(20)
             }
             .navigationTitle("Dive Sync")
+            .navigationBarTitleDisplayMode(.inline)
             .foregroundStyle(primaryText)
             .toolbarColorScheme(.light, for: .navigationBar)
             .toolbarBackground(.clear, for: .navigationBar)
@@ -73,9 +75,9 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
     }
 
-    private func diveCard(_ dive: DiveSummary) -> some View {
+    private func diveCard(_ dive: DiveSummary, showShare: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Last dive")
                         .font(.caption)
@@ -85,10 +87,34 @@ struct ContentView: View {
                         .foregroundStyle(primaryText)
                 }
                 Spacer()
-                Text(dive.depthText)
-                    .font(.title.weight(.heavy))
-                    .monospacedDigit()
-                    .foregroundStyle(.blue)
+                HStack(spacing: 10) {
+                    Text(dive.depthText)
+                        .font(.title.weight(.heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(.blue)
+                    if showShare {
+                        Button {
+                            captureAndShare(dive)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Share")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.white)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                        }
+                        .foregroundStyle(primaryText)
+                        .accessibilityLabel("Share dive")
+                    }
+                }
             }
 
             HStack {
@@ -440,6 +466,67 @@ struct ContentView: View {
             .padding(.top, 6)
         }
     }
+
+    #if os(iOS)
+    private func captureAndShare(_ dive: DiveSummary) {
+        // Build the share content without the Share button to avoid recursion
+        let shareView = diveCard(dive, showShare: false)
+            .padding(20)
+            .background(
+                LinearGradient(colors: [
+                    Color(red: 0.95, green: 0.97, blue: 1.0),
+                    Color(red: 0.78, green: 0.90, blue: 0.98)
+                ], startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+
+        // Render the SwiftUI view to UIImage
+        let image: UIImage?
+        if #available(iOS 17.0, *) {
+            let renderer = ImageRenderer(content: shareView)
+            renderer.scale = UIScreen.main.scale
+            image = renderer.uiImage
+        } else {
+            // Fallback snapshot using UIHostingController
+            let controller = UIHostingController(rootView: shareView)
+            controller.view.bounds = UIScreen.main.bounds.insetBy(dx: 20, dy: 100)
+            controller.view.backgroundColor = .clear
+            let size = controller.view.intrinsicContentSize
+            controller.view.bounds = CGRect(origin: .zero, size: CGSize(width: max(320, size.width), height: max(200, size.height)))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = UIScreen.main.scale
+            let renderer = UIGraphicsImageRenderer(size: controller.view.bounds.size, format: format)
+            image = renderer.image { _ in
+                controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            }
+        }
+
+        guard let image else { return }
+
+        let activity = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        if let presenter = topViewController() {
+            // On iPad, configure popover anchor if needed
+            activity.popoverPresentationController?.sourceView = presenter.view
+            activity.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+            presenter.present(activity, animated: true)
+        }
+    }
+
+    // Traverse to find the top-most presented view controller for presentation
+    private func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
+        .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+        .first?.rootViewController) -> UIViewController? {
+        if let nav = base as? UINavigationController {
+            return topViewController(base: nav.visibleViewController)
+        }
+        if let tab = base as? UITabBarController, let selected = tab.selectedViewController {
+            return topViewController(base: selected)
+        }
+        if let presented = base?.presentedViewController {
+            return topViewController(base: presented)
+        }
+        return base
+    }
+    #endif
 }
 
 #Preview {

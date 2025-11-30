@@ -45,7 +45,7 @@ struct DiveSummary: Identifiable, Codable {
         let waterTemp = userInfo["waterTemperatureCelsius"] as? Double
         let rawId = (userInfo["id"] as? String).flatMap(UUID.init) ?? UUID()
         let rawProfile = userInfo["profile"] as? [[String: Any]] ?? []
-        let samples = rawProfile.compactMap(DiveSample.init(dictionary:))
+        let samples = DiveSummary.decodeProfile(rawProfile)
 
         self.init(id: rawId,
                   startDate: Date(timeIntervalSince1970: start),
@@ -117,20 +117,24 @@ struct DiveSample: Identifiable, Codable {
         self.depthMeters = depthMeters
     }
 
-    init?(dictionary: [String: Any]) {
-        guard let seconds = dictionary["seconds"] as? Double,
-              let depth = dictionary["depthMeters"] as? Double else {
-            return nil
-        }
-        let rawId = (dictionary["id"] as? String).flatMap(UUID.init) ?? UUID()
-        self.init(id: rawId, seconds: seconds, depthMeters: depth)
-    }
-
     var asDictionary: [String: Any] {
         [
             "id": id.uuidString,
             "seconds": seconds,
             "depthMeters": depthMeters
         ]
+    }
+}
+
+private extension DiveSummary {
+    static func decodeProfile(_ rawProfile: [[String: Any]]) -> [DiveSample] {
+        rawProfile.compactMap { dict in
+            guard let seconds = dict["seconds"] as? Double,
+                  let depth = dict["depthMeters"] as? Double else {
+                return nil
+            }
+            let rawId = (dict["id"] as? String).flatMap(UUID.init) ?? UUID()
+            return DiveSample(id: rawId, seconds: seconds, depthMeters: depth)
+        }
     }
 }

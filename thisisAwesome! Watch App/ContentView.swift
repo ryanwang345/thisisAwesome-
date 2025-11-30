@@ -30,7 +30,7 @@ struct ContentView: View {
     private let sampleInterval: TimeInterval = 1.5
 
     @StateObject private var heartRateManager = HeartRateManager()
-    @StateObject private var waterManager = WaterSubmersionManager()
+    @StateObject private var waterManager = ActiveWaterSubmersionManager()
     @StateObject private var compassManager = CompassManager()
     @StateObject private var syncManager = DiveSyncManager()
 

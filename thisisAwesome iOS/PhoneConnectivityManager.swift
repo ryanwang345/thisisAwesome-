@@ -4,10 +4,13 @@ internal import Combine
 
 final class PhoneConnectivityManager: NSObject, ObservableObject {
     @Published var lastDive: DiveSummary?
+    @Published var diveHistory: [DiveSummary] = []
     @Published var statusMessage: String = "Waiting for the watch to finish a dive..."
     @Published var isReachable: Bool = false
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
+    private let storageKey = "savedDiveSummaries"
+    private let historyLimit = 50
 
     func activate() {
 #if targetEnvironment(simulator)
@@ -22,6 +25,14 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         session.delegate = self
         session.activate()
         statusMessage = "Looking for your watch..."
+
+        // Load persisted history if available
+        let saved = loadPersistedHistory()
+        if !saved.isEmpty {
+            diveHistory = saved.sorted { $0.endDate > $1.endDate }
+            lastDive = diveHistory.first
+            statusMessage = "Loaded last saved dive."
+        }
     }
 
     private func handle(userInfo: [String: Any]) {
@@ -33,8 +44,10 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         }
 
         DispatchQueue.main.async {
-            self.lastDive = dive
+            self.insertIntoHistory(dive)
+            self.lastDive = self.diveHistory.first
             self.statusMessage = "Latest dive synced at \(DateFormatter.shortTime.string(from: dive.endDate))."
+            self.persistHistory()
         }
     }
 }
@@ -91,42 +104,133 @@ private extension PhoneConnectivityManager {
     /// Provides a fake dive so the iOS simulator can show the UI without WatchConnectivity.
     func injectSimulatedDive() {
         let now = Date()
-        let duration: TimeInterval = 320
-        let profile: [DiveSample] = [
-            .init(seconds: 0, depthMeters: 0),
-            .init(seconds: 8, depthMeters: 3),
-            .init(seconds: 20, depthMeters: 9),
-            .init(seconds: 40, depthMeters: 16),
-            .init(seconds: 80, depthMeters: 22),
-            .init(seconds: 120, depthMeters: 24),
-            .init(seconds: 200, depthMeters: 16),
-            .init(seconds: 260, depthMeters: 8),
-            .init(seconds: 320, depthMeters: 0)
-        ]
-        let heartRates: [HeartRateSample] = [
-            .init(seconds: 10, bpm: 78),
-            .init(seconds: 60, bpm: 84),
-            .init(seconds: 120, bpm: 88),
-            .init(seconds: 180, bpm: 92),
-            .init(seconds: 240, bpm: 95),
-            .init(seconds: 300, bpm: 90),
-            .init(seconds: 320, bpm: 86)
+        let mockConfigs: [(TimeInterval, Double, Int, Double, Double)] = [
+            (320, 24, 92, 24.6, 1.1),  // deeper, longer
+            (240, 18, 88, 25.0, 0.8),  // mid-depth
+            (420, 30, 96, 24.2, 1.4)   // longest/deepest
         ]
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.lastDive = DiveSummary(
-                startDate: now.addingTimeInterval(-duration),
-                endDate: now,
-                maxDepthMeters: 24,
+        let summaries: [DiveSummary] = mockConfigs.enumerated().map { idx, config in
+            let (duration, maxDepth, endingHR, baseTemp, swing) = config
+            let end = now.addingTimeInterval(-Double(idx) * 1800) // stagger end times 30 min apart
+            let start = end.addingTimeInterval(-duration)
+            let profile = simulatedProfile(duration: duration, maxDepth: maxDepth, step: 0.5)
+            let heartRates = simulatedHeartRates(duration: duration, step: 0.5)
+            let waterTemps = simulatedWaterTemps(duration: duration, base: baseTemp, swing: swing, step: 0.5)
+
+            return DiveSummary(
+                startDate: start,
+                endDate: end,
+                maxDepthMeters: maxDepth,
                 durationSeconds: duration,
-                endingHeartRate: 92,
-                waterTemperatureCelsius: 24.5,
+                endingHeartRate: endingHR,
+                waterTemperatureCelsius: baseTemp,
                 profile: profile,
-                heartRateSamples: heartRates
+                heartRateSamples: heartRates,
+                waterTempSamples: waterTemps
             )
-            self.statusMessage = "Simulated dive loaded in simulator."
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.diveHistory = summaries.sorted { $0.endDate > $1.endDate }
+            self.lastDive = self.diveHistory.first
+            self.persistHistory()
+            self.statusMessage = "Simulated dives loaded in simulator."
             self.isReachable = false
         }
     }
+
+    func simulatedProfile(duration: TimeInterval, maxDepth: Double, step: TimeInterval) -> [DiveSample] {
+        // Faster descent, longer bottom, controlled ascent
+        let keyframes: [(Double, Double)] = [
+            (0.0, 0),
+            (0.08, maxDepth * 0.45),   // quick drop
+            (0.18, maxDepth),          // reach max
+            (0.55, maxDepth),          // stay near bottom
+            (0.70, maxDepth * 0.75),   // ascent pause
+            (0.85, maxDepth * 0.25),   // shallow stop
+            (1.0, 0)
+        ]
+
+        return stride(from: 0.0, through: duration, by: step).map { t in
+            let depth = interpolatedValue(at: t / duration, keyframes: keyframes)
+            return DiveSample(seconds: t, depthMeters: depth)
+        }
+    }
+
+    func simulatedHeartRates(duration: TimeInterval, step: TimeInterval) -> [HeartRateSample] {
+        // Mild bradycardia during descent/bottom, then rising on ascent/surface
+        let keyframes: [(Double, Double)] = [
+            (0.0, 92),   // anticipation
+            (0.10, 78),  // dive response kicks in
+            (0.30, 72),  // bottom bradycardia
+            (0.60, 76),  // ascent start
+            (0.80, 84),  // nearing surface
+            (1.0, 88)    // surface recovery
+        ]
+
+        return stride(from: 0.0, through: duration, by: step).map { t in
+            let bpm = Int(interpolatedValue(at: t / duration, keyframes: keyframes).rounded())
+            return HeartRateSample(seconds: t, bpm: bpm)
+        }
+    }
+
+    func simulatedWaterTemps(duration: TimeInterval, base: Double, swing: Double, step: TimeInterval) -> [WaterTempSample] {
+        // Slightly cooler at depth, warming near surface
+        let keyframes: [(Double, Double)] = [
+            (0.0, base),
+            (0.25, base - swing),          // drop with depth
+            (0.55, base - swing * 0.7),    // cooler at bottom
+            (0.8, base - swing * 0.3),     // warming on ascent
+            (1.0, base - swing * 0.1)      // near-surface
+        ]
+
+        return stride(from: 0.0, through: duration, by: step).map { t in
+            let c = interpolatedValue(at: t / duration, keyframes: keyframes)
+            return WaterTempSample(seconds: t, celsius: c)
+        }
+    }
+
+    func interpolatedValue(at progress: Double, keyframes: [(Double, Double)]) -> Double {
+        let clamped = max(0, min(progress, 1))
+        guard let upperIndex = keyframes.firstIndex(where: { $0.0 >= clamped }) else {
+            return keyframes.last?.1 ?? 0
+        }
+        if upperIndex == 0 { return keyframes[0].1 }
+
+        let lower = keyframes[upperIndex - 1]
+        let upper = keyframes[upperIndex]
+        let span = upper.0 - lower.0
+        let ratio = span > 0 ? (clamped - lower.0) / span : 0
+        return lower.1 + (upper.1 - lower.1) * ratio
+    }
 }
 #endif
+
+private extension PhoneConnectivityManager {
+    func insertIntoHistory(_ dive: DiveSummary) {
+        if let idx = diveHistory.firstIndex(where: { $0.id == dive.id }) {
+            diveHistory[idx] = dive
+        } else {
+            diveHistory.append(dive)
+        }
+        diveHistory = diveHistory
+            .sorted { $0.endDate > $1.endDate }
+            .prefix(historyLimit)
+            .map { $0 }
+    }
+
+    func persistHistory() {
+        do {
+            let data = try JSONEncoder().encode(diveHistory)
+            UserDefaults.standard.set(data, forKey: storageKey)
+        } catch {
+            print("Failed to persist dive history: \(error)")
+        }
+    }
+
+    func loadPersistedHistory() -> [DiveSummary] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return [] }
+        return (try? JSONDecoder().decode([DiveSummary].self, from: data)) ?? []
+    }
+}

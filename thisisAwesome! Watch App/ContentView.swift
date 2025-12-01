@@ -28,9 +28,13 @@ struct ContentView: View {
     @State private var lastSampleTime: TimeInterval = 0
     @State private var heartRateSamples: [HeartRateSample] = []
     @State private var lastHeartSampleTime: TimeInterval = 0
+    @State private var waterTempSamples: [WaterTempSample] = []
+    @State private var lastWaterSampleTime: TimeInterval = 0
+    private let diveStorageKey = "savedDiveSummaries"
     private let autoStartDepthThreshold: Double = 0.0  // meters
-    private let sampleInterval: TimeInterval = 1.5
-    private let heartRateSampleInterval: TimeInterval = 5.0
+    private let sampleInterval: TimeInterval = 0.5
+    private let heartRateSampleInterval: TimeInterval = 0.5
+    private let waterTempSampleInterval: TimeInterval = 0.5
 
     @StateObject private var heartRateManager = HeartRateManager()
     @StateObject private var waterManager = ActiveWaterSubmersionManager()
@@ -201,6 +205,9 @@ struct ContentView: View {
         .onReceive(waterManager.$depthMeters) { depth in
             handleDepthChange(to: depth)
         }
+        .onReceive(waterManager.$waterTemperatureCelsius) { temp in
+            recordWaterTempSample(temp)
+        }
         .onReceive(waterManager.$isSubmerged) { submerged in
             if submerged, !isDiving {
                 startDive(initialDepth: max(currentDepth, waterManager.depthMeters))
@@ -268,6 +275,8 @@ struct ContentView: View {
         lastSampleTime = 0
         heartRateSamples = []
         lastHeartSampleTime = 0
+        waterTempSamples = []
+        lastWaterSampleTime = 0
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -296,7 +305,9 @@ struct ContentView: View {
                                       endingHeartRate: heartRateManager.heartRate > 0 ? heartRateManager.heartRate : nil,
                                       waterTemperatureCelsius: waterManager.waterTemperatureCelsius,
                                       profile: profileSamples,
-                                      heartRateSamples: heartRateSamples)
+                                      heartRateSamples: heartRateSamples,
+                                      waterTempSamples: waterTempSamples)
+            saveSummaryLocally(summary)
             syncManager.send(summary)
 
             heartRateManager.completeDive(startDate: startDate,
@@ -310,6 +321,8 @@ struct ContentView: View {
         lastSampleTime = 0
         heartRateSamples = []
         lastHeartSampleTime = 0
+        waterTempSamples = []
+        lastWaterSampleTime = 0
     }
 
     private func changeDepth(by delta: Double) {
@@ -366,6 +379,36 @@ struct ContentView: View {
             heartRateSamples.append(HeartRateSample(seconds: elapsed, bpm: bpm))
             lastHeartSampleTime = elapsed
         }
+    }
+
+    private func recordWaterTempSample(_ celsius: Double?) {
+        guard isDiving, let temp = celsius, let start = diveStartDate else { return }
+        let elapsed = Date().timeIntervalSince(start)
+        let lastTemp = waterTempSamples.last?.celsius ?? temp
+
+        if waterTempSamples.isEmpty
+            || elapsed - lastWaterSampleTime >= waterTempSampleInterval
+            || abs(lastTemp - temp) >= 0.2 {
+            waterTempSamples.append(WaterTempSample(seconds: elapsed, celsius: temp))
+            lastWaterSampleTime = elapsed
+        }
+    }
+
+    private func saveSummaryLocally(_ summary: DiveSummary) {
+        do {
+            var history = loadSavedSummaries()
+            history.append(summary)
+            history = Array(history.suffix(50)) // keep last 50
+            let data = try JSONEncoder().encode(history)
+            UserDefaults.standard.set(data, forKey: diveStorageKey)
+        } catch {
+            print("Failed to persist dive summary: \(error)")
+        }
+    }
+
+    private func loadSavedSummaries() -> [DiveSummary] {
+        guard let data = UserDefaults.standard.data(forKey: diveStorageKey) else { return [] }
+        return (try? JSONDecoder().decode([DiveSummary].self, from: data)) ?? []
     }
 }
 

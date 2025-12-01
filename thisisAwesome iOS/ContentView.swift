@@ -8,6 +8,17 @@ struct ContentView: View {
     private let secondaryText = Color(red: 0.30, green: 0.34, blue: 0.40)
     @State private var selectedDepthTime: Double?
     @State private var selectedHeartTime: Double?
+    @State private var scrubTime: Double = 0
+    @State private var hasSetScrub: Bool = false
+    @State private var expandedDives: Set<UUID> = []
+
+    private func toggleExpansion(for dive: DiveSummary) {
+        if expandedDives.contains(dive.id) {
+            expandedDives.remove(dive.id)
+        } else {
+            expandedDives.insert(dive.id)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,10 +33,34 @@ struct ContentView: View {
                     VStack(spacing: 18) {
                         header
 
-                        if let dive = connectivity.lastDive {
-                            diveCard(dive)
+                        let uniqueDives = Dictionary(grouping: connectivity.diveHistory) { $0.id }
+                            .compactMap { $0.value.first }
+                            .sorted { $0.endDate > $1.endDate }
+
+                        if let latest = uniqueDives.first ?? connectivity.lastDive {
+                            let expanded = expandedDives.contains(latest.id)
+                            diveCard(latest,
+                                     showShare: true,
+                                     isExpanded: expanded,
+                                     onToggle: { toggleExpansion(for: latest) })
                         } else {
                             waitingCard
+                        }
+
+                        if uniqueDives.count > 1 {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text("Previous dives")
+                                    .font(.headline)
+                                    .foregroundStyle(primaryText)
+
+                                ForEach(uniqueDives.dropFirst()) { dive in
+                                    let expanded = expandedDives.contains(dive.id)
+                                    diveCard(dive,
+                                             showShare: true,
+                                             isExpanded: expanded,
+                                             onToggle: { toggleExpansion(for: dive) })
+                                }
+                            }
                         }
                     }
                     .padding(20)
@@ -38,8 +73,19 @@ struct ContentView: View {
             .toolbarColorScheme(.light, for: .navigationBar)
             .toolbarBackground(.clear, for: .navigationBar)
         }
-        .onAppear {
-            connectivity.activate()
+        .onAppear { connectivity.activate() }
+        .onChange(of: connectivity.diveHistory.first?.id) { _, _ in
+            if let latest = connectivity.diveHistory.sorted(by: { $0.endDate > $1.endDate }).first {
+                scrubTime = defaultScrubTime(for: latest)
+                hasSetScrub = false
+                expandedDives.insert(latest.id)
+            } else {
+                resetScrubber()
+            }
+        }
+        .onChange(of: scrubTime) { _, newValue in
+            selectedDepthTime = newValue
+            selectedHeartTime = newValue
         }
         .preferredColorScheme(.light) // ensure text stays dark on light gradient
     }
@@ -78,8 +124,10 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
     }
 
-    private func diveCard(_ dive: DiveSummary, showShare: Bool = true) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func diveCard(_ dive: DiveSummary, showShare: Bool = true, isExpanded: Bool = true, onToggle: (() -> Void)? = nil) -> some View {
+        let profileSamples = profilePoints(for: dive)
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Last dive")
@@ -117,19 +165,31 @@ struct ContentView: View {
                         .foregroundStyle(primaryText)
                         .accessibilityLabel("Share dive")
                     }
+                    if let onToggle {
+                        Button(action: onToggle) {
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(primaryText)
+                    }
                 }
             }
 
             HStack {
                 stat(label: "Duration", value: dive.durationText)
                 Spacer()
-                stat(label: "Heart rate", value: dive.endingHeartRate.map { "\($0) bpm" } ?? "--")
+                stat(label: "Avg. Heart Rate", value: averageHeartRateText(for: dive))
                 Spacer()
-                stat(label: "Water temp", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--")
+                stat(label: "Water Temp", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--", color: .white)
             }
 
-            diveProfileChart(dive)
-            heartRateChart(dive)
+            if isExpanded {
+                intervalScrubber(for: dive, samples: profileSamples)
+                diveProfileChart(dive, samples: profileSamples)
+                waterTempChart(dive)
+                heartRateChart(dive)
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,24 +202,261 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
     }
 
-    private func stat(label: String, value: String) -> some View {
+    private func stat(label: String, value: String, color: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(secondaryText)
+                .foregroundStyle(color ?? secondaryText)
             Text(value)
                 .font(.headline)
-                .foregroundStyle(primaryText)
+                .foregroundStyle(color ?? primaryText)
                 .monospacedDigit()
         }
     }
 
-    private func diveProfileChart(_ dive: DiveSummary) -> some View {
-        let baseSamples = profilePoints(for: dive)
-        let chartPoints = baseSamples.map { ChartPoint(id: $0.id, seconds: $0.seconds, depthMeters: $0.depthMeters, plotDepth: -$0.depthMeters) }
+    private func historyRow(_ dive: DiveSummary) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(dive.endDate, style: .date)
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+                Text(dive.endDate, style: .time)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(primaryText)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(dive.depthText)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.blue)
+                    .monospacedDigit()
+                Text("\(dive.durationText) • \(averageHeartRateText(for: dive))")
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+    }
+    
+    private func averageHeartRateText(for dive: DiveSummary) -> String {
+        guard !dive.heartRateSamples.isEmpty else { return "--" }
+        let total = dive.heartRateSamples.reduce(0) { $0 + $1.bpm }
+        let avg = Double(total) / Double(dive.heartRateSamples.count)
+        return "\(Int(avg.rounded())) bpm"
+    }
+
+    private func intervalScrubber(for dive: DiveSummary, samples: [DiveSample]) -> some View {
+        let maxProfileTime = samples.map(\.seconds).max() ?? 0
+        let maxHeartTime = dive.heartRateSamples.map(\.seconds).max() ?? 0
+        let maxTempTime = dive.waterTempSamples.map(\.seconds).max() ?? 0
+        let duration = max(dive.durationSeconds, max(maxProfileTime, maxHeartTime))
+        let safeDuration = max(duration, maxTempTime, 1)
+        let timelineTime = min(scrubTime, safeDuration)
+        let activeTime = timelineTime
+        let depthSample = interpolatedDepth(at: activeTime, samples: samples)
+        let heartSample = interpolatedHeartRate(at: activeTime, samples: dive.heartRateSamples)
+        let waterSample = interpolatedWaterTemp(at: activeTime, samples: dive.waterTempSamples)
+        let sliderBinding = Binding(
+            get: { min(timelineTime, safeDuration) },
+            set: { newValue in
+                scrubTime = newValue
+                hasSetScrub = true
+                selectedDepthTime = newValue
+                selectedHeartTime = newValue
+            }
+        )
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Timeline")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(primaryText)
+                Spacer()
+                Text(formattedElapsed(activeTime))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            HStack(spacing: 10) {
+                Text("0:00")
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+
+                TimelineSlider(value: sliderBinding, range: 0...safeDuration) { editing in
+                    if !editing {
+                        selectedDepthTime = scrubTime
+                        selectedHeartTime = scrubTime
+                    }
+                }
+
+                Text(formattedElapsed(safeDuration))
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Depth")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                    Text(depthSample.map { String(format: "%.1f m", $0.depthMeters) } ?? "--")
+                        .font(.headline)
+                        .foregroundStyle(primaryText)
+                    .monospacedDigit()
+                }
+
+                Divider()
+                    .frame(height: 24)
+                    .background(secondaryText.opacity(0.16))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Heart rate")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                    Text(heartSample.map { "\($0.bpm) bpm" } ?? "--")
+                        .font(.headline)
+                        .foregroundStyle(primaryText)
+                        .monospacedDigit()
+                }
+
+                Divider()
+                    .frame(height: 24)
+                    .background(secondaryText.opacity(0.16))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Water temp")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                    Text(waterSample.map { String(format: "%.1f C", $0.celsius) } ?? "--")
+                        .font(.headline)
+                        .foregroundStyle(primaryText)
+                        .monospacedDigit()
+                }
+
+//                Spacer()
+//                Text("@ \(formattedElapsed(activeTime))")
+//                    .font(.caption2.weight(.bold))
+//                    .foregroundStyle(.blue)
+//                    .padding(.horizontal, 10)
+//                    .padding(.vertical, 6)
+//                    .background(Color.blue.opacity(0.12))
+//                    .clipShape(Capsule())
+            }
+        }
+        .padding(12)
+        .background(Color(red: 0.96, green: 0.98, blue: 1.0))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .onAppear {
+            scrubTime = safeDuration
+            hasSetScrub = false
+        }
+        .onChange(of: dive.id) { _, _ in
+            scrubTime = safeDuration
+            hasSetScrub = false
+        }
+    }
+
+    private func resetScrubber() {
+        scrubTime = 0
+        hasSetScrub = false
+        selectedDepthTime = nil
+        selectedHeartTime = nil
+    }
+
+    private func defaultScrubTime(for dive: DiveSummary) -> Double {
+        let profileTime = dive.profile.map(\.seconds).max() ?? 0
+        let heartTime = dive.heartRateSamples.map(\.seconds).max() ?? 0
+        let tempTime = dive.waterTempSamples.map(\.seconds).max() ?? 0
+        return max(dive.durationSeconds, profileTime, heartTime, tempTime, 1)
+    }
+
+    private struct TimelineSlider: View {
+        @Binding var value: Double
+        let range: ClosedRange<Double>
+        var onEditingChanged: (Bool) -> Void = { _ in }
+
+        private let trackHeight: CGFloat = 8
+        private let thumbSize: CGFloat = 28
+
+        var body: some View {
+            GeometryReader { geo in
+                let totalWidth = max(geo.size.width, thumbSize)
+                let normalized = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+                let clamped = max(0, min(normalized, 1))
+                let x = clamped * (totalWidth - thumbSize)
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: trackHeight)
+
+                    Capsule()
+                        .fill(Color.blue.opacity(0.35))
+                        .frame(width: x + thumbSize * 0.5, height: trackHeight)
+
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: thumbSize, height: thumbSize)
+                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                        .overlay {
+                            Circle()
+                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        }
+                        .offset(x: x)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { gesture in
+                                    let location = gesture.location.x
+                                    let ratio = max(0, min(location / (totalWidth - thumbSize), 1))
+                                    let newValue = Double(ratio) * (range.upperBound - range.lowerBound) + range.lowerBound
+                                    value = newValue
+                                    onEditingChanged(true)
+                                }
+                                .onEnded { _ in
+                                    onEditingChanged(false)
+                                }
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { gesture in
+                            let location = gesture.location.x
+                            let ratio = max(0, min(location / totalWidth, 1))
+                            let newValue = Double(ratio) * (range.upperBound - range.lowerBound) + range.lowerBound
+                            value = newValue
+                            onEditingChanged(false)
+                        }
+                )
+            }
+            .frame(height: max(thumbSize, 32))
+        }
+    }
+
+    private func diveProfileChart(_ dive: DiveSummary, samples: [DiveSample]) -> some View {
+        let smoothedSamples = densifyDepth(samples: samples, step: 5)
+        let chartPoints = smoothedSamples.map { ChartPoint(id: $0.id, seconds: $0.seconds, depthMeters: $0.depthMeters, plotDepth: -$0.depthMeters) }
         let maxDepth = max(chartPoints.map { $0.depthMeters }.max() ?? 0, dive.maxDepthMeters)
         let duration = max(chartPoints.map { $0.seconds }.max() ?? 0, dive.durationSeconds)
-        let selected = selectedDepthTime.flatMap { time in nearestDepthSample(for: chartPoints, at: time) }
+        let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
+        let selected = interpolatedDepthPoint(for: chartPoints, at: focusTime)
         let cardBackground = Color(red: 0.09, green: 0.10, blue: 0.15)
         let border = Color.white.opacity(0.08)
         let lineGradient = LinearGradient(colors: [.cyan, .green, .yellow, .orange], startPoint: .leading, endPoint: .trailing)
@@ -203,7 +500,7 @@ struct ContentView: View {
                             .foregroundStyle(.white)
                         Text(String(format: "%.1f m", selected.depthMeters))
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.9))
+                            .foregroundStyle(.orange.opacity(0.9))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -212,7 +509,8 @@ struct ContentView: View {
                 }
             }
         }
-        .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+        .chartXScale(domain: 0...(duration > 0 ? duration : 1),
+                     range: .plotDimension(padding: 0))
         .chartYScale(domain: yDomain)
         .chartXAxis {
             let tickValues: [Double] = Array(stride(from: 0.0, through: max(duration, 1.0), by: Double(xStride)))
@@ -254,9 +552,11 @@ struct ContentView: View {
                                     guard x >= 0, x <= frame.width,
                                           let time: Double = proxy.value(atX: x) else { return }
                                     selectedDepthTime = time
+                                    scrubTime = time
+                                    hasSetScrub = true
                                 }
                                 .onEnded { _ in
-                                    selectedDepthTime = nil
+                                    selectedDepthTime = scrubTime
                                 }
                         )
                 } else {
@@ -382,12 +682,294 @@ struct ContentView: View {
         let plotDepth: Double
     }
 
-    private func nearestDepthSample(for samples: [ChartPoint], at time: Double) -> ChartPoint? {
-        samples.min(by: { abs($0.seconds - time) < abs($1.seconds - time) })
+    private func interpolatedDepth(at time: Double, samples: [DiveSample]) -> DiveSample? {
+        guard let maxTime = samples.map(\.seconds).max() else { return nil }
+        let clampedTime = min(max(time, 0), maxTime)
+        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return samples.last
+        }
+        if upperIndex == 0 { return samples.first }
+        let lower = samples[upperIndex - 1]
+        let upper = samples[upperIndex]
+        let span = upper.seconds - lower.seconds
+        let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
+        let depth = lower.depthMeters + (upper.depthMeters - lower.depthMeters) * ratio
+        return DiveSample(seconds: clampedTime, depthMeters: depth)
     }
 
-    private func nearestHeartSample(for samples: [HeartRateSample], at time: Double) -> HeartRateSample? {
-        samples.min(by: { abs($0.seconds - time) < abs($1.seconds - time) })
+    private func interpolatedDepthPoint(for samples: [ChartPoint], at time: Double) -> ChartPoint? {
+        guard let maxTime = samples.map(\.seconds).max() else { return nil }
+        let clampedTime = min(max(time, 0), maxTime)
+        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return samples.last
+        }
+        if upperIndex == 0 { return samples.first }
+        let lower = samples[upperIndex - 1]
+        let upper = samples[upperIndex]
+        let span = upper.seconds - lower.seconds
+        let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
+        let depth = lower.depthMeters + (upper.depthMeters - lower.depthMeters) * ratio
+        return ChartPoint(id: UUID(), seconds: clampedTime, depthMeters: depth, plotDepth: -depth)
+    }
+
+    private func interpolatedHeartRate(at time: Double, samples: [HeartRateSample]) -> HeartRateSample? {
+        guard let maxTime = samples.map(\.seconds).max() else { return samples.last }
+        let clampedTime = min(max(time, 0), maxTime)
+        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return samples.last
+        }
+        if upperIndex == 0 { return samples.first }
+        let lower = samples[upperIndex - 1]
+        let upper = samples[upperIndex]
+        let span = upper.seconds - lower.seconds
+        let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
+        let bpm = Int((Double(lower.bpm) + (Double(upper.bpm) - Double(lower.bpm)) * ratio).rounded())
+        return HeartRateSample(seconds: clampedTime, bpm: bpm)
+    }
+
+    private func interpolatedWaterTemp(at time: Double, samples: [WaterTempSample]) -> WaterTempSample? {
+        guard let maxTime = samples.map(\.seconds).max() else { return samples.last }
+        let clampedTime = min(max(time, 0), maxTime)
+        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return samples.last
+        }
+        if upperIndex == 0 { return samples.first }
+        let lower = samples[upperIndex - 1]
+        let upper = samples[upperIndex]
+        let span = upper.seconds - lower.seconds
+        let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
+        let c = lower.celsius + (upper.celsius - lower.celsius) * ratio
+        return WaterTempSample(seconds: clampedTime, celsius: c)
+    }
+
+    private func densify(samples: [HeartRateSample], step: Double) -> [HeartRateSample] {
+        guard let maxTime = samples.map(\.seconds).max(), maxTime > 0 else { return samples }
+        let sorted = samples.sorted { $0.seconds < $1.seconds }
+        return stride(from: 0.0, through: maxTime, by: step).compactMap { t in
+            interpolatedHeartRate(at: t, samples: sorted)
+        }
+    }
+
+    private func densify(samples: [WaterTempSample], step: Double) -> [WaterTempSample] {
+        guard let maxTime = samples.map(\.seconds).max(), maxTime > 0 else { return samples }
+        let sorted = samples.sorted { $0.seconds < $1.seconds }
+        return stride(from: 0.0, through: maxTime, by: step).compactMap { t in
+            interpolatedWaterTemp(at: t, samples: sorted)
+        }
+    }
+
+    private func densifyDepth(samples: [DiveSample], step: Double) -> [DiveSample] {
+        guard let maxTime = samples.map(\.seconds).max(), maxTime > 0 else { return samples }
+        let sorted = samples.sorted { $0.seconds < $1.seconds }
+        return stride(from: 0.0, through: maxTime, by: step).compactMap { t in
+            interpolatedDepth(at: t, samples: sorted)
+        }
+    }
+
+    private func padHeartRate(samples: [HeartRateSample], duration: Double) -> [HeartRateSample] {
+        guard !samples.isEmpty else { return samples }
+        var padded = samples.sorted { $0.seconds < $1.seconds }
+        if let first = padded.first, first.seconds > 0 {
+            padded.insert(HeartRateSample(seconds: 0, bpm: first.bpm), at: 0)
+        }
+        if let last = padded.last, last.seconds < duration {
+            padded.append(HeartRateSample(seconds: duration, bpm: last.bpm))
+        }
+        return padded
+    }
+
+    private func tooltipOffset(seconds: Double, duration: Double) -> CGFloat {
+        guard duration > 0 else { return 0 }
+        let fraction = seconds / duration
+        if fraction > 0.8 { return -8 }    // nudge left near right edge
+        if fraction < 0.2 { return 8 }     // nudge right near left edge
+        return 0                           // center otherwise
+    }
+
+    private func padWaterTemp(samples: [WaterTempSample], duration: Double) -> [WaterTempSample] {
+        guard !samples.isEmpty else { return samples }
+        var padded = samples.sorted { $0.seconds < $1.seconds }
+        if let first = padded.first, first.seconds > 0 {
+            padded.insert(WaterTempSample(seconds: 0, celsius: first.celsius), at: 0)
+        }
+        if let last = padded.last, last.seconds < duration {
+            padded.append(WaterTempSample(seconds: duration, celsius: last.celsius))
+        }
+        return padded
+    }
+
+    @ViewBuilder
+    private func waterTempChart(_ dive: DiveSummary) -> some View {
+        let samples = dive.waterTempSamples.sorted { $0.seconds < $1.seconds }
+
+        if samples.count <= 1 {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Water temperature")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(primaryText)
+                    Spacer()
+                }
+                Text("No water temp samples recorded for this dive.")
+                    .font(.footnote)
+                    .foregroundStyle(secondaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+        } else {
+            let minTemp = samples.map(\.celsius).min() ?? 0
+            let maxTemp = samples.map(\.celsius).max() ?? 0
+            let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
+            let padding = max(0.2, (maxTemp - minTemp) * 0.25)
+            let yMin = max(0, minTemp - padding)
+            let yMax = maxTemp + padding
+            let range = max(0.1, yMax - yMin)
+            let step: Double = range > 2.5 ? 0.5 : (range > 1.0 ? 0.25 : 0.1)
+            let yTicks = stride(from: yMin, through: yMax, by: step).map { $0 }
+            let xStride = duration > 300 ? 60.0 : 30.0
+            let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
+            let selected = interpolatedWaterTemp(at: focusTime, samples: samples)
+            let lineGradient = LinearGradient(colors: [.cyan.opacity(0.85), .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+
+            let paddedSamples = padWaterTemp(samples: samples, duration: duration)
+            let smoothedSamples = densify(samples: paddedSamples, step: 5)
+
+            let chartBody = Chart {
+                ForEach(smoothedSamples) { sample in
+                    AreaMark(
+                        x: .value("Time", sample.seconds),
+                        y: .value("Temp", sample.celsius)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(
+                        LinearGradient(colors: [
+                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.02)
+                        ], startPoint: .top, endPoint: .bottom)
+                    )
+
+                    LineMark(
+                        x: .value("Time", sample.seconds),
+                        y: .value("Temp", sample.celsius)
+                    )
+                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .foregroundStyle(lineGradient)
+                }
+
+                if let selected {
+                    RuleMark(x: .value("Time", selected.seconds))
+                        .foregroundStyle(.white.opacity(0.25))
+                    PointMark(
+                        x: .value("Time", selected.seconds),
+                        y: .value("Temp", selected.celsius)
+                    )
+                    .foregroundStyle(.white)
+                    .symbolSize(80)
+                    .annotation(position: .top, alignment: .center) {
+                        VStack(spacing: 4) {
+                            Text(formattedElapsed(selected.seconds))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Text(String(format: "%.1f C", selected.celsius))
+                                .font(.caption2)
+                                .foregroundStyle(.cyan)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+                        .offset(x: tooltipOffset(seconds: selected.seconds, duration: duration))
+                    }
+                }
+            }
+            .chartXScale(domain: 0...(duration > 0 ? duration : 1),
+                         range: .plotDimension(padding: 0))
+            .chartYScale(domain: yMin...yMax)
+            .chartPlotStyle { plotArea in
+                plotArea
+                    .padding(.top, 14)
+                    .padding(.horizontal, 5)
+                    .padding(.bottom, 10)
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: xStride)) { value in
+                    AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                    AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                    AxisValueLabel {
+                        if let seconds = value.as(Double.self) {
+                            Text(formattedElapsed(seconds))
+                                .foregroundStyle(Color.white.opacity(0.7))
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: yTicks) { value in
+                    AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                    AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(String(format: "%.1f", v))
+                                .foregroundStyle(Color.white.opacity(0.7))
+                        }
+                    }
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    if let anchor = proxy.plotFrame {
+                        let frame = geo[anchor]
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let x = value.location.x - frame.minX
+                                        guard x >= 0, x <= frame.width,
+                                              let time: Double = proxy.value(atX: x) else { return }
+                                        scrubTime = time
+                                        selectedHeartTime = time
+                                        selectedDepthTime = time
+                                        hasSetScrub = true
+                                    }
+                                    .onEnded { _ in
+                                        selectedHeartTime = scrubTime
+                                        selectedDepthTime = scrubTime
+                                    }
+                            )
+                    } else {
+                        Color.clear
+                    }
+                }
+            }
+            .frame(height: 170)
+            .padding(12)
+            .background(
+                LinearGradient(colors: [
+                    Color(red: 0.10, green: 0.12, blue: 0.18),
+                    Color(red: 0.12, green: 0.16, blue: 0.24)
+                ], startPoint: .top, endPoint: .bottom)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Water temperature")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                chartBody
+            }
+            .padding(.top, 6)
+        }
     }
 
     @ViewBuilder
@@ -415,16 +997,19 @@ struct ContentView: View {
             let gradient = LinearGradient(colors: [.red.opacity(0.8), .pink.opacity(0.7)], startPoint: .leading, endPoint: .trailing)
             let xStride = duration > 300 ? 60.0 : 30.0
             let yMax = Double(maxBpm) + 10
-            let yMaxScale = max(yMax, 20)
+            let yMaxScale = max(yMax, 20) + 10 // extra headroom so annotations don't collide with the top edge
             let yTicks = stride(from: 0.0, through: yMaxScale, by: 20.0).map { $0 }
             let minSample = samples.min(by: { $0.bpm < $1.bpm })
             let maxSample = samples.max(by: { $0.bpm < $1.bpm })
             let lastSample = samples.last
-            let lowBpm = minSample?.bpm ?? 0
-            let selected = selectedHeartTime.flatMap { nearestHeartSample(for: samples, at: $0) }
+            let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
+            let selected = interpolatedHeartRate(at: focusTime, samples: samples)
+
+            let paddedSamples = padHeartRate(samples: samples, duration: duration)
+            let smoothedSamples = densify(samples: paddedSamples, step: 5)
 
             let chartBody = Chart {
-                ForEach(samples) { sample in
+                ForEach(smoothedSamples) { sample in
                     AreaMark(
                         x: .value("Time", sample.seconds),
                         y: .value("BPM", sample.bpm)
@@ -452,7 +1037,7 @@ struct ContentView: View {
                         Text("Low \(minSample.bpm)")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.green)
-                            .padding(.horizontal, 6)
+                            .padding(.horizontal, 0)
                             .padding(.vertical, 2)
                             .background(Color.green.opacity(0.12))
                             .clipShape(Capsule())
@@ -518,11 +1103,19 @@ struct ContentView: View {
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+                        .offset(x: -6)
                     }
                 }
             }
-            .chartXScale(domain: 0...(duration > 0 ? duration : 1))
+            .chartXScale(domain: 0...(duration > 0 ? duration : 1),
+                         range: .plotDimension(padding: 0))
             .chartYScale(domain: 0...yMaxScale)
+            .chartPlotStyle { plotArea in
+                plotArea
+                    .padding(.top, 16)
+                    .padding(.bottom, 10)
+                    .padding(.horizontal, 3)
+            }
             .chartXAxis {
                 AxisMarks(values: .stride(by: xStride)) { value in
                     AxisGridLine()
@@ -541,7 +1134,6 @@ struct ContentView: View {
                     AxisValueLabel()
                 }
             }
-            .frame(height: 200)
             .chartOverlay { proxy in
                 GeometryReader { geo in
                     if let anchor = proxy.plotFrame {
@@ -556,9 +1148,11 @@ struct ContentView: View {
                                         guard x >= 0, x <= frame.width,
                                               let time: Double = proxy.value(atX: x) else { return }
                                         selectedHeartTime = time
+                                        scrubTime = time
+                                        hasSetScrub = true
                                     }
                                     .onEnded { _ in
-                                        selectedHeartTime = nil
+                                        selectedHeartTime = scrubTime
                                     }
                             )
                     } else {
@@ -566,6 +1160,18 @@ struct ContentView: View {
                     }
                 }
             }
+            .frame(height: 200)
+            .background(
+                LinearGradient(colors: [
+                    Color(red: 1.0, green: 0.98, blue: 0.99),
+                    Color(red: 1.0, green: 0.96, blue: 0.98)
+                ], startPoint: .top, endPoint: .bottom)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+            )
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -577,14 +1183,28 @@ struct ContentView: View {
                 }
                 chartBody
             }
-            .padding(.top, 6)
+            .padding(.top, 10)
         }
     }
 
     #if os(iOS)
     private func captureAndShare(_ dive: DiveSummary) {
-        // Build the share content without the Share button to avoid recursion
-        let shareView = diveCard(dive, showShare: false)
+        guard let snapshot = snapshotDiveCard(dive) else { return }
+
+        let activity = UIActivityViewController(activityItems: [snapshot], applicationActivities: nil)
+        if let presenter = topViewController() {
+            // On iPad, configure popover anchor if needed
+            activity.popoverPresentationController?.sourceView = presenter.view
+            activity.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+            presenter.present(activity, animated: true)
+        }
+    }
+
+    private func snapshotDiveCard(_ dive: DiveSummary) -> UIImage? {
+        let shareView = diveCard(dive,
+                                 showShare: false,
+                                 isExpanded: true,
+                                 onToggle: nil)
             .padding(20)
             .background(
                 LinearGradient(colors: [
@@ -593,35 +1213,41 @@ struct ContentView: View {
                 ], startPoint: .topLeading, endPoint: .bottomTrailing)
             )
 
-        // Render the SwiftUI view to UIImage
-        let image: UIImage?
+        let targetWidth = max(UIScreen.main.bounds.width - 40, 320)
         if #available(iOS 17.0, *) {
-            let renderer = ImageRenderer(content: shareView)
+            let renderer = ImageRenderer(content: shareView.frame(maxWidth: targetWidth))
+            renderer.proposedSize = .init(width: targetWidth, height: nil)
             renderer.scale = UIScreen.main.scale
-            image = renderer.uiImage
+            return renderer.uiImage
         } else {
-            // Fallback snapshot using UIHostingController
             let controller = UIHostingController(rootView: shareView)
-            controller.view.bounds = UIScreen.main.bounds.insetBy(dx: 20, dy: 100)
+            let size = controller.sizeThatFits(in: CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+            controller.view.bounds = CGRect(origin: .zero, size: size)
             controller.view.backgroundColor = .clear
-            let size = controller.view.intrinsicContentSize
-            controller.view.bounds = CGRect(origin: .zero, size: CGSize(width: max(320, size.width), height: max(200, size.height)))
+
+            // Attach to a temporary window tied to the current active scene so layout/rendering has full context
+            guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }) else {
+                return nil
+            }
+
+            let window = UIWindow(windowScene: scene)
+            window.rootViewController = controller
+            window.frame = CGRect(origin: .zero, size: size)
+            window.isHidden = false
+            window.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+
             let format = UIGraphicsImageRendererFormat()
             format.scale = UIScreen.main.scale
-            let renderer = UIGraphicsImageRenderer(size: controller.view.bounds.size, format: format)
-            image = renderer.image { _ in
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            let image = renderer.image { _ in
                 controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
             }
-        }
 
-        guard let image else { return }
-
-        let activity = UIActivityViewController(activityItems: [image], applicationActivities: nil)
-        if let presenter = topViewController() {
-            // On iPad, configure popover anchor if needed
-            activity.popoverPresentationController?.sourceView = presenter.view
-            activity.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
-            presenter.present(activity, animated: true)
+            window.isHidden = true
+            return image
         }
     }
 

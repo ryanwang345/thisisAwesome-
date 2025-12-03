@@ -233,4 +233,47 @@ private extension PhoneConnectivityManager {
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return [] }
         return (try? JSONDecoder().decode([DiveSummary].self, from: data)) ?? []
     }
+
+    /// Convenience: log the current history as pretty JSON for debugging.
+    func debugLogHistory() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(diveHistory)
+            if let json = String(data: data, encoding: .utf8) {
+                print("---- DiveHistory JSON ----\n\(json)\n-------------------------")
+            }
+        } catch {
+            print("Failed to encode dive history: \(error)")
+        }
+    }
+
+    /// Convenience: write the current history to a JSON file in Documents for offline inspection.
+    /// Returns the file URL if successful so you can pull it with Files/Finder.
+    @discardableResult
+    func exportHistoryToFile() -> URL? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(diveHistory)
+            let filename = "DiveHistory-\(Self.fileDateFormatter.string(from: Date())).json"
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(filename)
+            try data.write(to: url, options: .atomic)
+            print("Wrote dive history to \(url.path)")
+            return url
+        } catch {
+            print("Failed to export dive history: \(error)")
+            return nil
+        }
+    }
+
+    private static let fileDateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd-HHmmss"
+        df.locale = .init(identifier: "en_US_POSIX")
+        return df
+    }()
 }

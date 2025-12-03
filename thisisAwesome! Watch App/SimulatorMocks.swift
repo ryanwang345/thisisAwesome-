@@ -17,7 +17,7 @@ final class SimulatedWaterSubmersionManager: NSObject, ObservableObject {
         (0, 0), (2, 1), (6, 6), (12, 12), (20, 18), (28, 20),
         (36, 14), (44, 8), (54, 2), (60, 0)
     ]
-    private let tick: TimeInterval = 1.0
+    private let tick: TimeInterval = 0.5
 
     func start() {
         stop()

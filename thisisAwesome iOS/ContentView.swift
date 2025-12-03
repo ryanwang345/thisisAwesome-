@@ -189,6 +189,7 @@ struct ContentView: View {
                 diveProfileChart(dive, samples: profileSamples)
                 waterTempChart(dive)
                 heartRateChart(dive)
+                RawSamplesView(dive: dive, primaryText: primaryText, secondaryText: secondaryText)
             }
         }
         .padding(18)
@@ -344,15 +345,6 @@ struct ContentView: View {
                         .foregroundStyle(primaryText)
                         .monospacedDigit()
                 }
-
-//                Spacer()
-//                Text("@ \(formattedElapsed(activeTime))")
-//                    .font(.caption2.weight(.bold))
-//                    .foregroundStyle(.blue)
-//                    .padding(.horizontal, 10)
-//                    .padding(.vertical, 6)
-//                    .background(Color.blue.opacity(0.12))
-//                    .clipShape(Capsule())
             }
         }
         .padding(12)
@@ -451,17 +443,19 @@ struct ContentView: View {
     }
 
     private func diveProfileChart(_ dive: DiveSummary, samples: [DiveSample]) -> some View {
-        let smoothedSamples = densifyDepth(samples: samples, step: 5)
+        // Ensure the series is padded to the full duration so the line reaches the right edge
+        let effectiveDuration = max(samples.map { $0.seconds }.max() ?? 0, dive.durationSeconds, 1)
+        let smoothedSamples = densifyDepth(samples: samples, step: 5, duration: effectiveDuration)
         let chartPoints = smoothedSamples.map { ChartPoint(id: $0.id, seconds: $0.seconds, depthMeters: $0.depthMeters, plotDepth: -$0.depthMeters) }
         let maxDepth = max(chartPoints.map { $0.depthMeters }.max() ?? 0, dive.maxDepthMeters)
-        let duration = max(chartPoints.map { $0.seconds }.max() ?? 0, dive.durationSeconds)
+        let duration = effectiveDuration
         let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
         let selected = interpolatedDepthPoint(for: chartPoints, at: focusTime)
         let cardBackground = Color(red: 0.09, green: 0.10, blue: 0.15)
         let border = Color.white.opacity(0.08)
         let lineGradient = LinearGradient(colors: [.cyan, .green, .yellow, .orange], startPoint: .leading, endPoint: .trailing)
         let fillGradient = LinearGradient(colors: [Color.cyan.opacity(0.32), Color.blue.opacity(0.12)], startPoint: .top, endPoint: .bottom)
-        let xStride = duration > 900 ? 300 : (duration > 480 ? 120 : 60)
+        _ = duration > 900 ? 300 : (duration > 480 ? 120 : 60)
         let yDomain = (-(maxDepth + 2))...0
 
         let chartBody = Chart {
@@ -498,7 +492,7 @@ struct ContentView: View {
                         Text(formattedElapsed(selected.seconds))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
-                        Text(String(format: "%.1f m", selected.depthMeters))
+                        Text(String(format: "%.2f m", selected.depthMeters))
                             .font(.caption2)
                             .foregroundStyle(.orange.opacity(0.9))
                     }
@@ -509,11 +503,11 @@ struct ContentView: View {
                 }
             }
         }
-        .chartXScale(domain: 0...(duration > 0 ? duration : 1),
+        .chartXScale(domain: 0...effectiveDuration,
                      range: .plotDimension(padding: 0))
         .chartYScale(domain: yDomain)
         .chartXAxis {
-            let tickValues: [Double] = Array(stride(from: 0.0, through: max(duration, 1.0), by: Double(xStride)))
+            let tickValues: [Double] = Array(stride(from: 0.0, through: max(effectiveDuration, 1.0), by: 10.0))
             AxisMarks(values: tickValues) { value in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                 AxisTick().foregroundStyle(Color.white.opacity(0.25))
@@ -531,7 +525,7 @@ struct ContentView: View {
                 AxisTick().foregroundStyle(Color.white.opacity(0.25))
                 AxisValueLabel {
                     if let depth = value.as(Double.self) {
-                        Text(String(format: "%.0f m", abs(depth)))
+                        Text(String(format: "%.2f m", abs(depth)))
                             .foregroundStyle(.white.opacity(0.75))
                     }
                 }
@@ -551,8 +545,9 @@ struct ContentView: View {
                                     let x = value.location.x - frame.minX
                                     guard x >= 0, x <= frame.width,
                                           let time: Double = proxy.value(atX: x) else { return }
-                                    selectedDepthTime = time
-                                    scrubTime = time
+                                    let clamped = max(0, min(time, effectiveDuration))
+                                    selectedDepthTime = clamped
+                                    scrubTime = clamped
                                     hasSetScrub = true
                                 }
                                 .onEnded { _ in
@@ -636,8 +631,9 @@ struct ContentView: View {
     }
 
     private func formattedElapsed(_ seconds: Double) -> String {
-        let minutes = Int(seconds) / 60
-        let remainder = Int(seconds) % 60
+        let totalSeconds = max(0, Int(seconds))
+        let minutes = totalSeconds / 60
+        let remainder = totalSeconds % 60
         return String(format: "%02d:%02d", minutes, remainder)
     }
 
@@ -674,7 +670,6 @@ struct ContentView: View {
         .clipShape(Capsule())
         .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
     }
-
     private struct ChartPoint: Identifiable {
         let id: UUID
         let seconds: Double
@@ -713,14 +708,27 @@ struct ContentView: View {
     }
 
     private func interpolatedHeartRate(at time: Double, samples: [HeartRateSample]) -> HeartRateSample? {
-        guard let maxTime = samples.map(\.seconds).max() else { return samples.last }
+        guard !samples.isEmpty else { return nil }
+        let sorted = samples.sorted { $0.seconds < $1.seconds }
+        guard let minTime = sorted.first?.seconds, let maxTime = sorted.last?.seconds else { return sorted.last }
+
         let clampedTime = min(max(time, 0), maxTime)
-        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
-            return samples.last
+
+        // Before the first sample: pin to clampedTime with first BPM
+        if clampedTime <= minTime {
+            return HeartRateSample(seconds: clampedTime, bpm: sorted.first!.bpm)
         }
-        if upperIndex == 0 { return samples.first }
-        let lower = samples[upperIndex - 1]
-        let upper = samples[upperIndex]
+        // After the last sample: pin to clampedTime with last BPM
+        if clampedTime >= maxTime {
+            return HeartRateSample(seconds: clampedTime, bpm: sorted.last!.bpm)
+        }
+
+        // Interpolate between surrounding samples
+        guard let upperIndex = sorted.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return HeartRateSample(seconds: clampedTime, bpm: sorted.last!.bpm)
+        }
+        let lower = sorted[upperIndex - 1]
+        let upper = sorted[upperIndex]
         let span = upper.seconds - lower.seconds
         let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
         let bpm = Int((Double(lower.bpm) + (Double(upper.bpm) - Double(lower.bpm)) * ratio).rounded())
@@ -728,14 +736,20 @@ struct ContentView: View {
     }
 
     private func interpolatedWaterTemp(at time: Double, samples: [WaterTempSample]) -> WaterTempSample? {
-        guard let maxTime = samples.map(\.seconds).max() else { return samples.last }
+        guard !samples.isEmpty else { return nil }
+        let sorted = samples.sorted { $0.seconds < $1.seconds }
+        guard let minTime = sorted.first?.seconds, let maxTime = sorted.last?.seconds else { return sorted.last }
+
         let clampedTime = min(max(time, 0), maxTime)
-        guard let upperIndex = samples.firstIndex(where: { $0.seconds >= clampedTime }) else {
-            return samples.last
+
+        if clampedTime <= minTime { return WaterTempSample(seconds: clampedTime, celsius: sorted.first!.celsius) }
+        if clampedTime >= maxTime { return WaterTempSample(seconds: clampedTime, celsius: sorted.last!.celsius) }
+
+        guard let upperIndex = sorted.firstIndex(where: { $0.seconds >= clampedTime }) else {
+            return WaterTempSample(seconds: clampedTime, celsius: sorted.last!.celsius)
         }
-        if upperIndex == 0 { return samples.first }
-        let lower = samples[upperIndex - 1]
-        let upper = samples[upperIndex]
+        let lower = sorted[upperIndex - 1]
+        let upper = sorted[upperIndex]
         let span = upper.seconds - lower.seconds
         let ratio = span > 0 ? (clampedTime - lower.seconds) / span : 0
         let c = lower.celsius + (upper.celsius - lower.celsius) * ratio
@@ -758,12 +772,27 @@ struct ContentView: View {
         }
     }
 
-    private func densifyDepth(samples: [DiveSample], step: Double) -> [DiveSample] {
+    private func densifyDepth(samples: [DiveSample], step: Double, duration: Double? = nil) -> [DiveSample] {
         guard let maxTime = samples.map(\.seconds).max(), maxTime > 0 else { return samples }
-        let sorted = samples.sorted { $0.seconds < $1.seconds }
-        return stride(from: 0.0, through: maxTime, by: step).compactMap { t in
+        let targetEnd = max(maxTime, duration ?? 0)
+        var sorted = samples.sorted { $0.seconds < $1.seconds }
+        if let last = sorted.last {
+            if last.seconds < targetEnd {
+                // Extend the last depth horizontally to the target end so the chart line doesn't cut off
+                sorted.append(DiveSample(seconds: targetEnd, depthMeters: last.depthMeters))
+            }
+        } else if targetEnd > 0 {
+            // If we have no samples, synthesize a flat line at 0 depth
+            sorted = [DiveSample(seconds: 0, depthMeters: 0), DiveSample(seconds: targetEnd, depthMeters: 0)]
+        }
+        var out = stride(from: 0.0, through: targetEnd, by: step).compactMap { t in
             interpolatedDepth(at: t, samples: sorted)
         }
+        // Ensure we have an exact sample at the end time (floating-point stride may miss it)
+        if out.last?.seconds != targetEnd, let end = interpolatedDepth(at: targetEnd, samples: sorted) {
+            out.append(end)
+        }
+        return out
     }
 
     private func padHeartRate(samples: [HeartRateSample], duration: Double) -> [HeartRateSample] {
@@ -799,393 +828,252 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func waterTempChart(_ dive: DiveSummary) -> some View {
-        let samples = dive.waterTempSamples.sorted { $0.seconds < $1.seconds }
+private func waterTempChart(_ dive: DiveSummary) -> some View {
+    let samples = dive.waterTempSamples.sorted { $0.seconds < $1.seconds }
 
-        if samples.count <= 1 {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Water temperature")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(primaryText)
-                    Spacer()
-                }
-                Text("No water temp samples recorded for this dive.")
-                    .font(.footnote)
-                    .foregroundStyle(secondaryText)
+    if samples.count <= 1 {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Water temperature")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(primaryText)
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 6)
-        } else {
-            let minTemp = samples.map(\.celsius).min() ?? 0
-            let maxTemp = samples.map(\.celsius).max() ?? 0
-            let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
-            let padding = max(0.2, (maxTemp - minTemp) * 0.25)
-            let yMin = max(0, minTemp - padding)
-            let yMax = maxTemp + padding
-            let range = max(0.1, yMax - yMin)
-            let step: Double = range > 2.5 ? 0.5 : (range > 1.0 ? 0.25 : 0.1)
-            let yTicks = stride(from: yMin, through: yMax, by: step).map { $0 }
-            let xStride = duration > 300 ? 60.0 : 30.0
-            let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
-            let selected = interpolatedWaterTemp(at: focusTime, samples: samples)
-            let lineGradient = LinearGradient(colors: [.cyan.opacity(0.85), .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+            Text("No water temp samples recorded for this dive.")
+                .font(.footnote)
+                .foregroundStyle(secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 6)
+    } else {
+        let minTemp = samples.map(\.celsius).min() ?? 0
+        let maxTemp = samples.map(\.celsius).max() ?? 0
+        let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
+        let padding = max(0.2, (maxTemp - minTemp) * 0.25)
+        let yMin = max(0, minTemp - padding)
+        let yMax = maxTemp + padding
+        let range = max(0.1, yMax - yMin)
+        let step: Double = range > 2.5 ? 0.5 : (range > 1.0 ? 0.25 : 0.1)
+        let yTicks = Array(stride(from: yMin, through: yMax, by: step))
+        let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
+        let selected = interpolatedWaterTemp(at: focusTime, samples: samples)
+        let lineGradient = LinearGradient(colors: [.cyan.opacity(0.85), .blue.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
 
-            let paddedSamples = padWaterTemp(samples: samples, duration: duration)
-            let smoothedSamples = densify(samples: paddedSamples, step: 5)
+        let base = padWaterTemp(samples: samples, duration: duration)
+        let smoothed = densify(samples: base, step: 2)
 
-            let chartBody = Chart {
-                ForEach(smoothedSamples) { sample in
-                    AreaMark(
-                        x: .value("Time", sample.seconds),
-                        y: .value("Temp", sample.celsius)
-                    )
+        let chartBody = Chart {
+            ForEach(smoothed) { s in
+                AreaMark(x: .value("Time", s.seconds), y: .value("Temp", s.celsius))
                     .interpolationMethod(.monotone)
-                    .foregroundStyle(
-                        LinearGradient(colors: [
-                            Color.white.opacity(0.08),
-                            Color.white.opacity(0.02)
-                        ], startPoint: .top, endPoint: .bottom)
-                    )
+                    .foregroundStyle(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.02)], startPoint: .top, endPoint: .bottom))
 
-                    LineMark(
-                        x: .value("Time", sample.seconds),
-                        y: .value("Temp", sample.celsius)
-                    )
+                LineMark(x: .value("Time", s.seconds), y: .value("Temp", s.celsius))
                     .interpolationMethod(.monotone)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     .foregroundStyle(lineGradient)
-                }
+            }
 
-                if let selected {
-                    RuleMark(x: .value("Time", selected.seconds))
-                        .foregroundStyle(.white.opacity(0.25))
-                    PointMark(
-                        x: .value("Time", selected.seconds),
-                        y: .value("Temp", selected.celsius)
-                    )
+            if let selected {
+                RuleMark(x: .value("Time", selected.seconds))
+                    .foregroundStyle(.white.opacity(0.25))
+                PointMark(x: .value("Time", selected.seconds), y: .value("Temp", selected.celsius))
                     .foregroundStyle(.white)
                     .symbolSize(80)
                     .annotation(position: .top, alignment: .center) {
                         VStack(spacing: 4) {
-                            Text(formattedElapsed(selected.seconds))
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                            Text(String(format: "%.1f C", selected.celsius))
-                                .font(.caption2)
-                                .foregroundStyle(.cyan)
+                            Text(formattedElapsed(selected.seconds)).font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                            Text(String(format: "%.1f C", selected.celsius)).font(.caption2).foregroundStyle(.cyan)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
                         .background(Color.black.opacity(0.7))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
                         .offset(x: tooltipOffset(seconds: selected.seconds, duration: duration))
                     }
-                }
             }
-            .chartXScale(domain: 0...(duration > 0 ? duration : 1),
-                         range: .plotDimension(padding: 0))
-            .chartYScale(domain: yMin...yMax)
-            .chartPlotStyle { plotArea in
-                plotArea
-                    .padding(.top, 14)
-                    .padding(.horizontal, 5)
-                    .padding(.bottom, 10)
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: xStride)) { value in
-                    AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                    AxisTick().foregroundStyle(Color.white.opacity(0.25))
-                    AxisValueLabel {
-                        if let seconds = value.as(Double.self) {
-                            Text(formattedElapsed(seconds))
-                                .foregroundStyle(Color.white.opacity(0.7))
-                        }
-                    }
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: yTicks) { value in
-                    AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                    AxisTick().foregroundStyle(Color.white.opacity(0.25))
-                    AxisValueLabel {
-                        if let v = value.as(Double.self) {
-                            Text(String(format: "%.1f", v))
-                                .foregroundStyle(Color.white.opacity(0.7))
-                        }
-                    }
-                }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    if let anchor = proxy.plotFrame {
-                        let frame = geo[anchor]
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 0)
-                                    .onChanged { value in
-                                        let x = value.location.x - frame.minX
-                                        guard x >= 0, x <= frame.width,
-                                              let time: Double = proxy.value(atX: x) else { return }
-                                        scrubTime = time
-                                        selectedHeartTime = time
-                                        selectedDepthTime = time
-                                        hasSetScrub = true
-                                    }
-                                    .onEnded { _ in
-                                        selectedHeartTime = scrubTime
-                                        selectedDepthTime = scrubTime
-                                    }
-                            )
-                    } else {
-                        Color.clear
-                    }
-                }
-            }
-            .frame(height: 170)
-            .padding(12)
-            .background(
-                LinearGradient(colors: [
-                    Color(red: 0.10, green: 0.12, blue: 0.18),
-                    Color(red: 0.12, green: 0.16, blue: 0.24)
-                ], startPoint: .top, endPoint: .bottom)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Water temperature")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white)
-                    Spacer()
-                }
-                chartBody
-            }
-            .padding(.top, 6)
         }
+        .chartXScale(domain: 0...(duration > 0 ? duration : 1), range: .plotDimension(padding: 12))
+        .chartYScale(domain: yMin...yMax)
+        .chartPlotStyle { $0.padding(.top, 14).padding(.horizontal, 5).padding(.bottom, 10) }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: 10.0)) { v in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let s = v.as(Double.self) { Text(formattedElapsed(s)).foregroundStyle(Color.white.opacity(0.7)) }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: yTicks) { v in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let val = v.as(Double.self) { Text(String(format: "%.1f", val)).foregroundStyle(Color.white.opacity(0.7)) }
+                }
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                if let anchor = proxy.plotFrame {
+                    let frame = geo[anchor]
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let x = value.location.x - frame.minX
+                                guard x >= 0, x <= frame.width, let t: Double = proxy.value(atX: x) else { return }
+                                let clamped = max(0, min(t, duration))
+                                scrubTime = clamped; selectedHeartTime = clamped; selectedDepthTime = clamped; hasSetScrub = true
+                            }
+                            .onEnded { _ in selectedHeartTime = scrubTime; selectedDepthTime = scrubTime })
+                }
+            }
+        }
+
+        // Card with built-in title (like Dive profile)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Water temperature")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: "thermometer.medium").foregroundStyle(.white.opacity(0.7))
+            }
+            chartBody
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.18),
+                                           Color(red: 0.12, green: 0.16, blue: 0.24)],
+                                   startPoint: .top, endPoint: .bottom))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
+}
 
     @ViewBuilder
-    private func heartRateChart(_ dive: DiveSummary) -> some View {
-        let samples = dive.heartRateSamples.sorted { $0.seconds < $1.seconds }
+private func heartRateChart(_ dive: DiveSummary) -> some View {
+    let samples = dive.heartRateSamples.sorted { $0.seconds < $1.seconds }
 
-        if samples.count <= 1 {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Heart rate")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(primaryText)
-                    Spacer()
-                }
-                Text("No heart rate samples recorded for this dive.")
-                    .font(.footnote)
-                    .foregroundStyle(secondaryText)
+    if samples.count <= 1 {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Heart rate")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(primaryText)
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 6)
-        } else {
-            let maxBpm = max(samples.map(\.bpm).max() ?? 0, 60)
-            let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
-            let avgBpm = Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)
-            let gradient = LinearGradient(colors: [.red.opacity(0.8), .pink.opacity(0.7)], startPoint: .leading, endPoint: .trailing)
-            let xStride = duration > 300 ? 60.0 : 30.0
-            let yMax = Double(maxBpm) + 10
-            let yMaxScale = max(yMax, 20) + 10 // extra headroom so annotations don't collide with the top edge
-            let yTicks = stride(from: 0.0, through: yMaxScale, by: 20.0).map { $0 }
-            let minSample = samples.min(by: { $0.bpm < $1.bpm })
-            let maxSample = samples.max(by: { $0.bpm < $1.bpm })
-            let lastSample = samples.last
-            let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
-            let selected = interpolatedHeartRate(at: focusTime, samples: samples)
+            Text("No heart rate samples recorded for this dive.")
+                .font(.footnote)
+                .foregroundStyle(secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 6)
+    } else {
+        let maxBpm = max(samples.map(\.bpm).max() ?? 0, 60)
+        let duration = max(samples.map(\.seconds).max() ?? 0, dive.durationSeconds)
+        let yMaxScale = Double(((maxBpm + 10 + 5) / 10) * 10)
+        let yTicks = Array(stride(from: 0.0, through: yMaxScale, by: 20.0))
+        let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
+        let selected = interpolatedHeartRate(at: focusTime, samples: samples)
 
-            let paddedSamples = padHeartRate(samples: samples, duration: duration)
-            let smoothedSamples = densify(samples: paddedSamples, step: 5)
+        let lineGradient = LinearGradient(colors: [.red.opacity(0.85), .pink.opacity(0.8)],
+                                          startPoint: .leading, endPoint: .trailing)
+        let padded = padHeartRate(samples: samples, duration: duration)
+        let smoothed = densify(samples: padded, step: 2)
 
-            let chartBody = Chart {
-                ForEach(smoothedSamples) { sample in
-                    AreaMark(
-                        x: .value("Time", sample.seconds),
-                        y: .value("BPM", sample.bpm)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(gradient.opacity(0.25))
+        let chartBody = Chart {
+            ForEach(smoothed) { s in
+                AreaMark(x: .value("Time", s.seconds), y: .value("BPM", s.bpm))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.02)],
+                                                    startPoint: .top, endPoint: .bottom))
 
-                    LineMark(
-                        x: .value("Time", sample.seconds),
-                        y: .value("BPM", sample.bpm)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    .foregroundStyle(gradient)
-                }
+                LineMark(x: .value("Time", s.seconds), y: .value("BPM", s.bpm))
+                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .foregroundStyle(lineGradient)
+            }
 
-                if let minSample {
-                    PointMark(
-                        x: .value("Time", minSample.seconds),
-                        y: .value("BPM", minSample.bpm)
-                    )
-                    .foregroundStyle(.green)
-                    .symbolSize(60)
-                    .annotation(position: .topLeading, alignment: .leading) {
-                        Text("Low \(minSample.bpm)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.green)
-                            .padding(.horizontal, 0)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                }
-
-                if let maxSample {
-                    PointMark(
-                        x: .value("Time", maxSample.seconds),
-                        y: .value("BPM", maxSample.bpm)
-                    )
-                    .foregroundStyle(.orange)
-                    .symbolSize(60)
-                    .annotation(position: .topLeading, alignment: .leading) {
-                        Text("High \(maxSample.bpm)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                }
-
-                if let lastSample {
-                    PointMark(
-                        x: .value("Time", lastSample.seconds),
-                        y: .value("BPM", lastSample.bpm)
-                    )
-                    .foregroundStyle(.red)
-                    .symbolSize(70)
-                    .annotation(position: .bottom, alignment: .trailing) {
-                        Text("Last \(lastSample.bpm)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.red.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                }
-
-                if let selected {
-                    RuleMark(x: .value("Time", selected.seconds))
-                        .foregroundStyle(.red.opacity(0.35))
-                    PointMark(
-                        x: .value("Time", selected.seconds),
-                        y: .value("BPM", selected.bpm)
-                    )
+            if let selected {
+                RuleMark(x: .value("Time", selected.seconds))
+                    .foregroundStyle(.white.opacity(0.25))
+                PointMark(x: .value("Time", selected.seconds), y: .value("BPM", selected.bpm))
                     .foregroundStyle(.white)
                     .symbolSize(80)
                     .annotation(position: .top, alignment: .center) {
                         VStack(spacing: 4) {
-                            Text(formattedElapsed(selected.seconds))
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(primaryText)
-                            Text("\(selected.bpm) bpm")
-                                .font(.caption2)
-                                .foregroundStyle(.red)
+                            Text(formattedElapsed(selected.seconds)).font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                            Text("\(selected.bpm) bpm").font(.caption2).foregroundStyle(.red)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color.white)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .background(Color.black.opacity(0.7))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
-                        .offset(x: -6)
+                        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+                        .offset(x: tooltipOffset(seconds: selected.seconds, duration: duration))
                     }
-                }
             }
-            .chartXScale(domain: 0...(duration > 0 ? duration : 1),
-                         range: .plotDimension(padding: 0))
-            .chartYScale(domain: 0...yMaxScale)
-            .chartPlotStyle { plotArea in
-                plotArea
-                    .padding(.top, 16)
-                    .padding(.bottom, 10)
-                    .padding(.horizontal, 3)
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: xStride)) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    AxisValueLabel {
-                        if let seconds = value.as(Double.self) {
-                            Text(formattedElapsed(seconds))
-                        }
-                    }
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: yTicks) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    AxisValueLabel()
-                }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    if let anchor = proxy.plotFrame {
-                        let frame = geo[anchor]
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 0)
-                                    .onChanged { value in
-                                        let x = value.location.x - frame.minX
-                                        guard x >= 0, x <= frame.width,
-                                              let time: Double = proxy.value(atX: x) else { return }
-                                        selectedHeartTime = time
-                                        scrubTime = time
-                                        hasSetScrub = true
-                                    }
-                                    .onEnded { _ in
-                                        selectedHeartTime = scrubTime
-                                    }
-                            )
-                    } else {
-                        Color.clear
-                    }
-                }
-            }
-            .frame(height: 200)
-            .background(
-                LinearGradient(colors: [
-                    Color(red: 1.0, green: 0.98, blue: 0.99),
-                    Color(red: 1.0, green: 0.96, blue: 0.98)
-                ], startPoint: .top, endPoint: .bottom)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
-            )
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Heart rate")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(primaryText)
-                    Spacer()
-                    capsuleStat(label: "Avg", value: "\(Int(avgBpm.rounded())) bpm", color: Color.orange)
-                }
-                chartBody
-            }
-            .padding(.top, 10)
         }
+        .chartXScale(domain: 0...(duration > 0 ? duration : 1), range: .plotDimension(padding: 12))
+        .chartYScale(domain: 0...yMaxScale)
+        .chartPlotStyle { $0.padding(.top, 14).padding(.horizontal, 5).padding(.bottom, 10) }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: 10.0)) { v in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let s = v.as(Double.self) { Text(formattedElapsed(s)).foregroundStyle(Color.white.opacity(0.7)) }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: yTicks) { v in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisTick().foregroundStyle(Color.white.opacity(0.25))
+                AxisValueLabel {
+                    if let val = v.as(Double.self) { Text("\(Int(val))").foregroundStyle(Color.white.opacity(0.7)) }
+                }
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                if let anchor = proxy.plotFrame {
+                    let frame = geo[anchor]
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let x = value.location.x - frame.minX
+                                guard x >= 0, x <= frame.width, let t: Double = proxy.value(atX: x) else { return }
+                                let clamped = max(0, min(t, duration))
+                                selectedHeartTime = clamped; scrubTime = clamped; hasSetScrub = true
+                            }
+                            .onEnded { _ in selectedHeartTime = scrubTime })
+                }
+            }
+        }
+
+        // Card with built-in title (like Dive profile)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Heart rate")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: "heart.fill").foregroundStyle(.white.opacity(0.7))
+            }
+            chartBody
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.18),
+                                           Color(red: 0.12, green: 0.16, blue: 0.24)],
+                                   startPoint: .top, endPoint: .bottom))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
+}
+
 
     #if os(iOS)
     private func captureAndShare(_ dive: DiveSummary) {
@@ -1272,3 +1160,4 @@ struct ContentView: View {
 #Preview {
     ContentView()
 }
+

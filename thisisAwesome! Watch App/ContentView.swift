@@ -28,8 +28,10 @@ struct ContentView: View {
     @State private var lastSampleTime: TimeInterval = 0
     @State private var heartRateSamples: [HeartRateSample] = []
     @State private var lastHeartSampleTime: TimeInterval = 0
+    @State private var mockHRBase: Int = 72
     @State private var waterTempSamples: [WaterTempSample] = []
     @State private var lastWaterSampleTime: TimeInterval = 0
+    @State private var exportMessage: String?
     private let diveStorageKey = "savedDiveSummaries"
     private let autoStartDepthThreshold: Double = 0.0  // meters
     private let sampleInterval: TimeInterval = 0.5
@@ -161,6 +163,42 @@ struct ContentView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(isDiving ? .red : .green)
 
+                        Button {
+                            if let url = exportCurrentSamplesToFile() {
+                                exportMessage = "Exported to \(url.lastPathComponent)"
+                            } else {
+                                exportMessage = "Export failed"
+                            }
+                        } label: {
+                            Text("Export samples")
+                                .font(.caption.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.blue)
+
+                        Button {
+                            if let url = exportSavedDivesToFile() {
+                                exportMessage = "Saved dives → \(url.lastPathComponent)"
+                            } else {
+                                exportMessage = "Export failed"
+                            }
+                        } label: {
+                            Text("Export saved dives")
+                                .font(.caption.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.purple)
+
+                        if let exportMessage {
+                            Text(exportMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.yellow)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+
                         if let sent = syncManager.lastSentSummary {
                             VStack(spacing: 2) {
                                 Text("Sent to iPhone")
@@ -186,9 +224,9 @@ struct ContentView: View {
             .scrollIndicators(.hidden)
         }
             .padding(.top, -40)
-//         .safeAreaInset(edge: .top) {
-//             Color.clear.frame(height: 2)
-//         }
+        .safeAreaInset(edge: .top) {
+            Color.clear.frame(height: 2)
+        }
         }
         .onAppear {
             waterManager.start()
@@ -216,7 +254,7 @@ struct ContentView: View {
             }
         }
         .onReceive(heartRateManager.$heartRate) { bpm in
-            recordHeartRateSample(bpm: bpm)
+            if bpm > 0 { recordHeartRateSample(bpm: bpm) }
         }
     }
 
@@ -281,6 +319,10 @@ struct ContentView: View {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             diveTime += 1
+            let liveBPM = heartRateManager.heartRate
+            let bpmToLog = liveBPM > 0 ? liveBPM : generateMockHeartRate()
+            recordHeartRateSample(bpm: bpmToLog)
+            recordWaterTempSample(waterManager.waterTemperatureCelsius) // ensure temp is captured even if updates pause
         }
 
         heartRateManager.start()
@@ -289,6 +331,7 @@ struct ContentView: View {
     private func stopDive() {
         if diveStartDate != nil {
             recordDepthSample(depth: currentDepth, force: true)
+            recordWaterTempSample(waterManager.waterTemperatureCelsius, force: true) // capture final temp at end
         }
         isDiving = false
         phase = .surface
@@ -323,6 +366,7 @@ struct ContentView: View {
         lastHeartSampleTime = 0
         waterTempSamples = []
         lastWaterSampleTime = 0
+        mockHRBase = 72
     }
 
     private func changeDepth(by delta: Double) {
@@ -381,17 +425,28 @@ struct ContentView: View {
         }
     }
 
-    private func recordWaterTempSample(_ celsius: Double?) {
+    private func recordWaterTempSample(_ celsius: Double?, force: Bool = false) {
         guard isDiving, let temp = celsius, let start = diveStartDate else { return }
         let elapsed = Date().timeIntervalSince(start)
         let lastTemp = waterTempSamples.last?.celsius ?? temp
 
-        if waterTempSamples.isEmpty
+        if force
+            || waterTempSamples.isEmpty
             || elapsed - lastWaterSampleTime >= waterTempSampleInterval
-            || abs(lastTemp - temp) >= 0.2 {
+            || temp != lastTemp {
             waterTempSamples.append(WaterTempSample(seconds: elapsed, celsius: temp))
             lastWaterSampleTime = elapsed
         }
+    }
+
+    private func generateMockHeartRate() -> Int {
+        // Simple mock: vary around a baseline, slightly influenced by depth
+        // Depth influence: deeper -> slightly lower HR; surface -> baseline
+        let depthFactor = max(0.0, min(1.0, currentDepth / 30.0))
+        let adjustedBase = Double(mockHRBase) - depthFactor * 10.0
+        let jitter = Double(Int.random(in: -2...2))
+        let mock = max(45, min(160, Int(adjustedBase + jitter)))
+        return mock
     }
 
     private func saveSummaryLocally(_ summary: DiveSummary) {
@@ -409,6 +464,101 @@ struct ContentView: View {
     private func loadSavedSummaries() -> [DiveSummary] {
         guard let data = UserDefaults.standard.data(forKey: diveStorageKey) else { return [] }
         return (try? JSONDecoder().decode([DiveSummary].self, from: data)) ?? []
+    }
+
+    // MARK: - Debug export/logging (watch-side)
+
+    /// Print current in-memory samples to the console as pretty JSON for quick inspection.
+    func debugLogCurrentSamples() {
+        let payload = DebugPayload(
+            startDate: diveStartDate,
+            currentDepth: currentDepth,
+            maxDepth: maxDepth,
+            profile: profileSamples,
+            heartRates: heartRateSamples,
+            waterTemps: waterTempSamples
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(payload)
+            if let json = String(data: data, encoding: .utf8) {
+                print("---- Watch Debug Samples ----\n\(json)\n-----------------------------")
+            }
+        } catch {
+            print("Failed to encode debug samples: \(error)")
+        }
+    }
+
+    /// Write current samples to a JSON file in the watch app's Documents folder for offline pull via console/Files.
+    @discardableResult
+    func exportCurrentSamplesToFile() -> URL? {
+        let payload = DebugPayload(
+            startDate: diveStartDate,
+            currentDepth: currentDepth,
+            maxDepth: maxDepth,
+            profile: profileSamples,
+            heartRates: heartRateSamples,
+            waterTemps: waterTempSamples
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(payload)
+            let filename = "WatchSamples-\(Self.debugFileDateFormatter.string(from: Date())).json"
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(filename)
+            try data.write(to: url, options: .atomic)
+            print("Wrote watch samples to \(url.path)")
+            return url
+        } catch {
+            print("Failed to export watch samples: \(error)")
+            return nil
+        }
+    }
+
+    private static let debugFileDateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd-HHmmss"
+        df.locale = .init(identifier: "en_US_POSIX")
+        return df
+    }()
+
+    private struct DebugPayload: Codable {
+        let startDate: Date?
+        let currentDepth: Double
+        let maxDepth: Double
+        let profile: [DiveSample]
+        let heartRates: [HeartRateSample]
+        let waterTemps: [WaterTempSample]
+    }
+
+    // Export previously saved summaries (UserDefaults) to a JSON file.
+    @discardableResult
+    func exportSavedDivesToFile() -> URL? {
+        let history = loadSavedSummaries()
+        guard !history.isEmpty else {
+            print("No saved dives to export.")
+            return nil
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(history)
+            let filename = "SavedDives-\(Self.debugFileDateFormatter.string(from: Date())).json"
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(filename)
+            try data.write(to: url, options: .atomic)
+            print("Wrote saved dive history to \(url.path)")
+            return url
+        } catch {
+            print("Failed to export saved dives: \(error)")
+            return nil
+        }
     }
 }
 

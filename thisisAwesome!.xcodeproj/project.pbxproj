@@ -10,11 +10,13 @@
 		3511992E2ED1A8D9006A695B /* thisisAwesome! Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3511992D2ED1A8D9006A695B /* thisisAwesome! Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		35FA8A682ED2EE5F00859470 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A662ED2EE5600859470 /* Accelerate.framework */; };
 		35FA8A6E2ED2EEAE00859470 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */; };
+		8617F30C2EDEC210000945F9 /* TestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = 8617F30B2EDEC210000945F9 /* TestPlan.xctestplan */; };
 		B1D9E0213E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */; };
 		B1D9E0223E9D4E5BB7D3F001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */; };
 		B1D9E0233E9D4E5BB7D3F001 /* DiveSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */; };
 		B1D9E0243E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */; };
 		B1D9E0253E9D4E5BB7D3F001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */; };
+		B1D9E0323E9D4E5BB7D3F001 /* RawSamplesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E0313E9D4E5BB7D3F001 /* RawSamplesView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,12 +49,14 @@
 		35FA8A662ED2EE5600859470 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/Accelerate.framework; sourceTree = DEVELOPER_DIR; };
 		35FA8A6B2ED2EE7600859470 /* BackgroundTasks.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTasks.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/BackgroundTasks.framework; sourceTree = DEVELOPER_DIR; };
 		35FA8A6D2ED2EEAE00859470 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.1.sdk/System/Library/Frameworks/HealthKit.framework; sourceTree = DEVELOPER_DIR; };
+		8617F30B2EDEC210000945F9 /* TestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = TestPlan.xctestplan; sourceTree = "<group>"; };
 		B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = thisisAwesome_iOSApp.swift; sourceTree = "<group>"; };
 		B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveSummary.swift; sourceTree = "<group>"; };
 		B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneConnectivityManager.swift; sourceTree = "<group>"; };
 		B1D9E0063E9D4E5BB7D3F001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1D9E0313E9D4E5BB7D3F001 /* RawSamplesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawSamplesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -86,6 +90,7 @@
 		351199202ED1A8D8006A695B = {
 			isa = PBXGroup;
 			children = (
+				8617F30B2EDEC210000945F9 /* TestPlan.xctestplan */,
 				351199312ED1A8D9006A695B /* thisisAwesome! Watch App */,
 				B1D9E0013E9D4E5BB7D3F001 /* thisisAwesome iOS */,
 				35FA8A652ED2EE5500859470 /* Frameworks */,
@@ -118,6 +123,7 @@
 				B1D9E0023E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift */,
 				B1D9E0033E9D4E5BB7D3F001 /* ContentView.swift */,
 				B1D9E0043E9D4E5BB7D3F001 /* DiveSummary.swift */,
+				B1D9E0313E9D4E5BB7D3F001 /* RawSamplesView.swift */,
 				B1D9E0053E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift */,
 				B1D9E0073E9D4E5BB7D3F001 /* Assets.xcassets */,
 				B1D9E0063E9D4E5BB7D3F001 /* Info.plist */,
@@ -222,6 +228,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8617F30C2EDEC210000945F9 /* TestPlan.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -242,6 +249,7 @@
 				B1D9E0213E9D4E5BB7D3F001 /* thisisAwesome_iOSApp.swift in Sources */,
 				B1D9E0223E9D4E5BB7D3F001 /* ContentView.swift in Sources */,
 				B1D9E0233E9D4E5BB7D3F001 /* DiveSummary.swift in Sources */,
+				B1D9E0323E9D4E5BB7D3F001 /* RawSamplesView.swift in Sources */,
 				B1D9E0243E9D4E5BB7D3F001 /* PhoneConnectivityManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

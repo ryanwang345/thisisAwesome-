@@ -13,6 +13,11 @@ struct DiveSummary: Identifiable, Codable {
     let durationSeconds: Double
     let endingHeartRate: Int?
     let waterTemperatureCelsius: Double?
+    let locationDescription: String?
+    let weatherSummary: String?
+    let weatherAirTempCelsius: Double?
+    let locationLatitude: Double?
+    let locationLongitude: Double?
     let profile: [DiveSample]
     let heartRateSamples: [HeartRateSample]
     let waterTempSamples: [WaterTempSample]
@@ -24,6 +29,11 @@ struct DiveSummary: Identifiable, Codable {
          durationSeconds: Double,
          endingHeartRate: Int?,
          waterTemperatureCelsius: Double?,
+         locationDescription: String? = nil,
+         weatherSummary: String? = nil,
+         weatherAirTempCelsius: Double? = nil,
+         locationLatitude: Double? = nil,
+         locationLongitude: Double? = nil,
          profile: [DiveSample] = [],
          heartRateSamples: [HeartRateSample] = [],
          waterTempSamples: [WaterTempSample] = []) {
@@ -34,6 +44,11 @@ struct DiveSummary: Identifiable, Codable {
         self.durationSeconds = durationSeconds
         self.endingHeartRate = endingHeartRate
         self.waterTemperatureCelsius = waterTemperatureCelsius
+        self.locationDescription = locationDescription
+        self.weatherSummary = weatherSummary
+        self.weatherAirTempCelsius = weatherAirTempCelsius
+        self.locationLatitude = locationLatitude
+        self.locationLongitude = locationLongitude
         self.profile = profile
         self.heartRateSamples = heartRateSamples
         self.waterTempSamples = waterTempSamples
@@ -49,6 +64,11 @@ struct DiveSummary: Identifiable, Codable {
 
         let heartRate = userInfo["endingHeartRate"] as? Int
         let waterTemp = userInfo["waterTemperatureCelsius"] as? Double
+        let location = userInfo["locationDescription"] as? String
+        let weather = userInfo["weatherSummary"] as? String
+        let airTemp = userInfo["weatherAirTempCelsius"] as? Double
+        let lat = userInfo["locationLatitude"] as? Double
+        let lon = userInfo["locationLongitude"] as? Double
         let rawId = (userInfo["id"] as? String).flatMap(UUID.init) ?? UUID()
         let rawProfile = userInfo["profile"] as? [[String: Any]] ?? []
         let samples = DiveSummary.decodeProfile(rawProfile)
@@ -64,13 +84,18 @@ struct DiveSummary: Identifiable, Codable {
                   durationSeconds: duration,
                   endingHeartRate: heartRate,
                   waterTemperatureCelsius: waterTemp,
+                  locationDescription: location,
+                  weatherSummary: weather,
+                  weatherAirTempCelsius: airTemp,
+                  locationLatitude: lat,
+                  locationLongitude: lon,
                   profile: samples,
                   heartRateSamples: hrSamples,
                   waterTempSamples: wtSamples)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, startDate, endDate, maxDepthMeters, durationSeconds, endingHeartRate, waterTemperatureCelsius, profile, heartRateSamples, waterTempSamples
+        case id, startDate, endDate, maxDepthMeters, durationSeconds, endingHeartRate, waterTemperatureCelsius, locationDescription, weatherSummary, weatherAirTempCelsius, locationLatitude, locationLongitude, profile, heartRateSamples, waterTempSamples
     }
 
     init(from decoder: Decoder) throws {
@@ -82,6 +107,11 @@ struct DiveSummary: Identifiable, Codable {
         durationSeconds = try container.decode(Double.self, forKey: .durationSeconds)
         endingHeartRate = try container.decodeIfPresent(Int.self, forKey: .endingHeartRate)
         waterTemperatureCelsius = try container.decodeIfPresent(Double.self, forKey: .waterTemperatureCelsius)
+        locationDescription = try container.decodeIfPresent(String.self, forKey: .locationDescription)
+        weatherSummary = try container.decodeIfPresent(String.self, forKey: .weatherSummary)
+        weatherAirTempCelsius = try container.decodeIfPresent(Double.self, forKey: .weatherAirTempCelsius)
+        locationLatitude = try container.decodeIfPresent(Double.self, forKey: .locationLatitude)
+        locationLongitude = try container.decodeIfPresent(Double.self, forKey: .locationLongitude)
         profile = try container.decodeIfPresent([DiveSample].self, forKey: .profile) ?? []
         heartRateSamples = try container.decodeIfPresent([HeartRateSample].self, forKey: .heartRateSamples) ?? []
         waterTempSamples = try container.decodeIfPresent([WaterTempSample].self, forKey: .waterTempSamples) ?? []
@@ -96,6 +126,11 @@ struct DiveSummary: Identifiable, Codable {
         try container.encode(durationSeconds, forKey: .durationSeconds)
         try container.encodeIfPresent(endingHeartRate, forKey: .endingHeartRate)
         try container.encodeIfPresent(waterTemperatureCelsius, forKey: .waterTemperatureCelsius)
+        try container.encodeIfPresent(locationDescription, forKey: .locationDescription)
+        try container.encodeIfPresent(weatherSummary, forKey: .weatherSummary)
+        try container.encodeIfPresent(weatherAirTempCelsius, forKey: .weatherAirTempCelsius)
+        try container.encodeIfPresent(locationLatitude, forKey: .locationLatitude)
+        try container.encodeIfPresent(locationLongitude, forKey: .locationLongitude)
         try container.encode(profile, forKey: .profile)
         try container.encode(heartRateSamples, forKey: .heartRateSamples)
         try container.encode(waterTempSamples, forKey: .waterTempSamples)
@@ -114,6 +149,21 @@ struct DiveSummary: Identifiable, Codable {
         }
         if let waterTemperatureCelsius {
             payload["waterTemperatureCelsius"] = waterTemperatureCelsius
+        }
+        if let locationDescription {
+            payload["locationDescription"] = locationDescription
+        }
+        if let weatherSummary {
+            payload["weatherSummary"] = weatherSummary
+        }
+        if let weatherAirTempCelsius {
+            payload["weatherAirTempCelsius"] = weatherAirTempCelsius
+        }
+        if let locationLatitude {
+            payload["locationLatitude"] = locationLatitude
+        }
+        if let locationLongitude {
+            payload["locationLongitude"] = locationLongitude
         }
         if !profile.isEmpty {
             payload["profile"] = profile.map { $0.asDictionary }

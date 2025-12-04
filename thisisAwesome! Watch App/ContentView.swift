@@ -341,12 +341,18 @@ struct ContentView: View {
         timer = nil
 
         if let startDate = diveStartDate {
+            let meta = currentDiveMetadata()
             let summary = DiveSummary(startDate: startDate,
                                       endDate: endDate,
                                       maxDepthMeters: maxDepth,
                                       durationSeconds: diveTime,
                                       endingHeartRate: heartRateManager.heartRate > 0 ? heartRateManager.heartRate : nil,
                                       waterTemperatureCelsius: waterManager.waterTemperatureCelsius,
+                                      locationDescription: meta.location,
+                                      weatherSummary: meta.weather,
+                                      weatherAirTempCelsius: meta.airTemp,
+                                      locationLatitude: meta.latitude,
+                                      locationLongitude: meta.longitude,
                                       profile: profileSamples,
                                       heartRateSamples: heartRateSamples,
                                       waterTempSamples: waterTempSamples)
@@ -437,6 +443,24 @@ struct ContentView: View {
             waterTempSamples.append(WaterTempSample(seconds: elapsed, celsius: temp))
             lastWaterSampleTime = elapsed
         }
+    }
+
+    private func currentDiveMetadata() -> (location: String?, weather: String?, airTemp: Double?, latitude: Double?, longitude: Double?) {
+#if targetEnvironment(simulator)
+        // Provide rich mock metadata in the simulator
+        let samples: [(String, String, Double, Double, Double)] = [
+            ("Toronto Pan Am Sports Centre, Toronto", "Indoor pool • calm", 29.0, 43.7810, -79.2342),
+            ("Alex Duff Memorial Pool, Toronto", "Outdoor pool • light breeze", 27.5, 43.6657, -79.4186),
+            ("Donald D. Summerville Pool, Toronto", "Lake breeze • partly cloudy", 22.0, 43.6685, -79.2958)
+        ]
+        if let pick = samples.randomElement() {
+            return (pick.0, pick.1, pick.2, pick.3, pick.4)
+        }
+        return ("Test Reef", "Sunny", 26.0, 0, 0)
+#else
+        // Real device: leave optional so we don't show incorrect data without a weather/location source.
+        return (nil, nil, nil, nil, nil)
+#endif
     }
 
     private func generateMockHeartRate() -> Int {

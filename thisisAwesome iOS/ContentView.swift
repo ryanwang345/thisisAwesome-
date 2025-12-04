@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import UIKit
+import MapKit
 
 struct ContentView: View {
     @StateObject private var connectivity = PhoneConnectivityManager()
@@ -11,6 +12,9 @@ struct ContentView: View {
     @State private var scrubTime: Double = 0
     @State private var hasSetScrub: Bool = false
     @State private var expandedDives: Set<UUID> = []
+    @State private var durationRange: ClosedRange<Double> = 0...600
+    @State private var sortMode: SortMode = .dateDesc
+    @State private var locationFilter: String? = nil
 
     private func toggleExpansion(for dive: DiveSummary) {
         if expandedDives.contains(dive.id) {
@@ -21,6 +25,29 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let uniqueDives: [DiveSummary] = {
+            let deduped = Dictionary(grouping: connectivity.diveHistory) { $0.id }
+                .compactMap { $0.value.first }
+            switch sortMode {
+            case .dateDesc:
+                return deduped.sorted { $0.endDate > $1.endDate }
+            case .dateAsc:
+                return deduped.sorted { $0.endDate < $1.endDate }
+            case .locationAZ:
+                return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedAscending }
+            case .locationZA:
+                return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedDescending }
+            }
+        }()
+        let maxDuration = max(uniqueDives.map(\.durationSeconds).max() ?? 0, 60)
+        let clampedRange = clampRange(durationRange, within: 0...maxDuration)
+        let availableLocations = Array(Set(uniqueDives.compactMap { locationCity($0.locationDescription) }))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        let filteredDives = uniqueDives.filter {
+            clampedRange.contains($0.durationSeconds) &&
+            (locationFilter == nil || locationCity($0.locationDescription) == locationFilter)
+        }
+
         NavigationStack {
             ZStack {
                 LinearGradient(colors: [
@@ -33,32 +60,40 @@ struct ContentView: View {
                     VStack(spacing: 18) {
                         header
 
-                        let uniqueDives = Dictionary(grouping: connectivity.diveHistory) { $0.id }
-                            .compactMap { $0.value.first }
-                            .sorted { $0.endDate > $1.endDate }
+                        filterControls(maxDuration: maxDuration)
+                        locationControls(availableLocations: availableLocations)
+                        sortControls
 
-                        if let latest = uniqueDives.first ?? connectivity.lastDive {
-                            let expanded = expandedDives.contains(latest.id)
-                            diveCard(latest,
-                                     showShare: true,
-                                     isExpanded: expanded,
-                                     onToggle: { toggleExpansion(for: latest) })
-                        } else {
-                            waitingCard
-                        }
+                        if let latest = filteredDives.first ?? connectivity.lastDive {
+                let expanded = expandedDives.contains(latest.id)
+                diveCard(latest,
+                         showShare: true,
+                         isExpanded: expanded,
+                         onToggle: { toggleExpansion(for: latest) })
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    toggleExpansion(for: latest)
+                }
+            } else {
+                waitingCard
+            }
 
-                        if uniqueDives.count > 1 {
+                        if filteredDives.count > 1 {
                             VStack(alignment: .leading, spacing: 14) {
                                 Text("Previous dives")
                                     .font(.headline)
                                     .foregroundStyle(primaryText)
 
-                                ForEach(uniqueDives.dropFirst()) { dive in
+                                ForEach(filteredDives.dropFirst()) { dive in
                                     let expanded = expandedDives.contains(dive.id)
                                     diveCard(dive,
                                              showShare: true,
                                              isExpanded: expanded,
                                              onToggle: { toggleExpansion(for: dive) })
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        toggleExpansion(for: dive)
+                                    }
                                 }
                             }
                         }
@@ -102,6 +137,95 @@ struct ContentView: View {
         }
     }
 
+    private func filterControls(maxDuration: Double) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Filter by duration")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+                Spacer()
+                Text("\(formattedElapsed(durationRange.lowerBound)) – \(formattedElapsed(durationRange.upperBound))")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(primaryText)
+            }
+            RangeDurationSlider(range: $durationRange, bounds: 0...maxDuration)
+                .frame(height: 40)
+        }
+    }
+
+    private func locationControls(availableLocations: [String]) -> some View {
+        HStack {
+            Text("Location")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(secondaryText)
+            Menu {
+                Button {
+                    locationFilter = nil
+                } label: {
+                    Label("All locations", systemImage: locationFilter == nil ? "checkmark" : "")
+                }
+                ForEach(availableLocations, id: \.self) { city in
+                    Button {
+                        locationFilter = city
+                    } label: {
+                        Label(city, systemImage: locationFilter == city ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(locationFilter ?? "All locations")
+                        .font(.caption.weight(.bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Image(systemName: "mappin.and.ellipse")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+            }
+            Spacer()
+        }
+    }
+
+    private var sortControls: some View {
+        HStack {
+            Text("Sort by")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(secondaryText)
+            Menu {
+                ForEach(SortMode.allCases) { option in
+                    Button {
+                        sortMode = option
+                    } label: {
+                        Label(option.label, systemImage: option == sortMode ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(sortMode.label)
+                        .font(.caption.weight(.bold))
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+            }
+            Spacer()
+        }
+    }
+
     private var waitingCard: some View {
         VStack(spacing: 10) {
             Image(systemName: "wifi")
@@ -128,31 +252,35 @@ struct ContentView: View {
         let profileSamples = profilePoints(for: dive)
 
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Last dive")
-                        .font(.caption)
-                        .foregroundStyle(secondaryText)
-                    Text(dive.endDate, style: .time)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(primaryText)
-                }
-                Spacer()
-                HStack(spacing: 10) {
-                    Text(dive.depthText)
-                        .font(.title.weight(.heavy))
-                        .monospacedDigit()
-                        .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Last dive")
+                            .font(.caption)
+                            .foregroundStyle(secondaryText)
+                        Text(dive.endDate, style: .time)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(primaryText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Text(dive.endDate, style: .date)
+                            .font(.caption2)
+                            .foregroundStyle(secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
                     if showShare {
                         Button {
                             captureAndShare(dive)
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "square.and.arrow.up")
                                 Text("Share")
                                     .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
                             }
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(Color.white)
                             .overlay(
@@ -168,10 +296,34 @@ struct ContentView: View {
                     if let onToggle {
                         Button(action: onToggle) {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.caption.weight(.bold))
+                                .font(.subheadline.weight(.bold))
+                                .frame(width: 36, height: 36)
+                                .background(Color.white.opacity(0.7))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(primaryText)
+                    }
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dive.depthText)
+                            .font(.system(size: 34, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.blue)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Text("Max depth")
+                            .font(.caption2)
+                            .foregroundStyle(secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    HStack(spacing: 12) {
+                        stat(label: "Duration", value: dive.durationText)
+                        Divider().frame(height: 28).background(secondaryText.opacity(0.2))
+                        stat(label: "Avg. Heart Rate", value: averageHeartRateText(for: dive))
                     }
                 }
             }
@@ -183,6 +335,8 @@ struct ContentView: View {
                 Spacer()
                 stat(label: "Water Temp", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--", color: .white)
             }
+            diveMetaRow(dive)
+            diveMap(dive)
 
             if isExpanded {
                 intervalScrubber(for: dive, samples: profileSamples)
@@ -507,8 +661,7 @@ struct ContentView: View {
                      range: .plotDimension(padding: 0))
         .chartYScale(domain: yDomain)
         .chartXAxis {
-            let tickValues: [Double] = Array(stride(from: 0.0, through: max(effectiveDuration, 1.0), by: 10.0))
-            AxisMarks(values: tickValues) { value in
+            AxisMarks(values: timeTickValues(duration: effectiveDuration)) { value in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                 AxisTick().foregroundStyle(Color.white.opacity(0.25))
                 AxisValueLabel {
@@ -670,11 +823,186 @@ struct ContentView: View {
         .clipShape(Capsule())
         .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
     }
+
+    private func diveMetaRow(_ dive: DiveSummary) -> some View {
+        let location = dive.locationDescription ?? "Location not recorded"
+        let weather = dive.weatherSummary ?? "Weather not recorded"
+        let air = dive.weatherAirTempCelsius.map { String(format: "%.1f C", $0) }
+
+        return HStack(alignment: .top, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "mappin.and.ellipse")
+                    .foregroundStyle(.blue)
+                Text(location)
+                    .font(.caption)
+                    .foregroundStyle(primaryText)
+                    .lineLimit(2)
+            }
+            Spacer()
+            HStack(spacing: 8) {
+                Image(systemName: "cloud.sun")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(weather)
+                        .font(.caption)
+                        .foregroundStyle(primaryText)
+                        .lineLimit(2)
+                    if let air {
+                        Text("Air \(air)")
+                            .font(.caption2)
+                            .foregroundStyle(secondaryText)
+                    }
+                }
+            }
+        }
+    }
+
+    private func diveMap(_ dive: DiveSummary) -> some View {
+        guard let lat = dive.locationLatitude,
+              let lon = dive.locationLongitude else {
+            return AnyView(EmptyView())
+        }
+        let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                        span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+        return AnyView(
+            Map(position: .constant(.region(region))) {
+                Marker(dive.locationDescription ?? "Dive", coordinate: region.center)
+            }
+            .mapStyle(.standard)
+            .frame(height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+        )
+    }
+
     private struct ChartPoint: Identifiable {
         let id: UUID
         let seconds: Double
         let depthMeters: Double
         let plotDepth: Double
+    }
+
+    private struct RangeDurationSlider: View {
+        @Binding var range: ClosedRange<Double>
+        let bounds: ClosedRange<Double>
+
+        private let trackHeight: CGFloat = 8
+        private let thumbSize: CGFloat = 26
+
+        var body: some View {
+            GeometryReader { geo in
+                let width = max(geo.size.width, thumbSize * 2)
+                let lowerRatio = CGFloat((range.lowerBound - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound))
+                let upperRatio = CGFloat((range.upperBound - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound))
+                let lowerX = max(0, min(lowerRatio, 1)) * (width - thumbSize)
+                let upperX = max(0, min(upperRatio, 1)) * (width - thumbSize)
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: trackHeight)
+
+                    Capsule()
+                        .fill(Color.blue.opacity(0.35))
+                        .frame(width: max(upperX - lowerX + thumbSize, 0), height: trackHeight)
+                        .offset(x: lowerX)
+
+                    thumb(x: lowerX)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { gesture in
+                                    let location = gesture.location.x
+                                    let ratio = max(0, min(location / (width - thumbSize), 1))
+                                    let value = Double(ratio) * (bounds.upperBound - bounds.lowerBound) + bounds.lowerBound
+                                    range = min(value, range.upperBound)...range.upperBound
+                                }
+                        )
+
+                    thumb(x: upperX)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { gesture in
+                                    let location = gesture.location.x
+                                    let ratio = max(0, min(location / (width - thumbSize), 1))
+                                    let value = Double(ratio) * (bounds.upperBound - bounds.lowerBound) + bounds.lowerBound
+                                    range = range.lowerBound...max(value, range.lowerBound)
+                                }
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+
+        private func thumb(x: CGFloat) -> some View {
+            Circle()
+                .fill(Color.white)
+                .frame(width: thumbSize, height: thumbSize)
+                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                .overlay {
+                    Circle()
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                }
+                .offset(x: x)
+        }
+    }
+
+    private func clampRange(_ range: ClosedRange<Double>, within bounds: ClosedRange<Double>) -> ClosedRange<Double> {
+        let lower = max(bounds.lowerBound, min(range.lowerBound, bounds.upperBound))
+        let upper = max(lower, min(range.upperBound, bounds.upperBound))
+        return lower...upper
+    }
+
+    private func timeTickValues(duration: Double) -> [Double] {
+        let spacing = timeTickSpacing(for: duration)
+        let cappedDuration = max(duration, spacing)
+        var values: [Double] = []
+        var current: Double = 0
+        while current < cappedDuration {
+            values.append(current)
+            current += spacing
+        }
+        values.append(cappedDuration)
+        return values
+    }
+
+    private func timeTickSpacing(for duration: Double) -> Double {
+        // Aim for ~6 ticks with a friendly spacing
+        let targetTicks = 6.0
+        let raw = max(duration / targetTicks, 1)
+        let candidates: [Double] = [
+            1, 2, 5,
+            10, 15, 20, 30,
+            60, 90, 120, 180,
+            300, 600, 900, 1200,
+            1800, 3600, 7200
+        ]
+        return candidates.first(where: { $0 >= raw }) ?? 7200
+    }
+
+    private enum SortMode: String, CaseIterable, Identifiable {
+        case dateDesc, dateAsc, locationAZ, locationZA
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .dateDesc: return "Date (newest)"
+            case .dateAsc: return "Date (oldest)"
+            case .locationAZ: return "Location A–Z"
+            case .locationZA: return "Location Z–A"
+            }
+        }
+    }
+
+    private func locationCity(_ description: String?) -> String? {
+        guard let desc = description, !desc.isEmpty else { return nil }
+        let parts = desc.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
+        let city = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return city?.isEmpty == false ? city : nil
     }
 
     private func interpolatedDepth(at time: Double, samples: [DiveSample]) -> DiveSample? {
@@ -897,7 +1225,7 @@ private func waterTempChart(_ dive: DiveSummary) -> some View {
         .chartYScale(domain: yMin...yMax)
         .chartPlotStyle { $0.padding(.top, 14).padding(.horizontal, 5).padding(.bottom, 10) }
         .chartXAxis {
-            AxisMarks(values: .stride(by: 10.0)) { v in
+            AxisMarks(values: timeTickValues(duration: duration)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                 AxisTick().foregroundStyle(Color.white.opacity(0.25))
                 AxisValueLabel {
@@ -1019,7 +1347,7 @@ private func heartRateChart(_ dive: DiveSummary) -> some View {
         .chartYScale(domain: 0...yMaxScale)
         .chartPlotStyle { $0.padding(.top, 14).padding(.horizontal, 5).padding(.bottom, 10) }
         .chartXAxis {
-            AxisMarks(values: .stride(by: 10.0)) { v in
+            AxisMarks(values: timeTickValues(duration: duration)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                 AxisTick().foregroundStyle(Color.white.opacity(0.25))
                 AxisValueLabel {
@@ -1160,4 +1488,3 @@ private func heartRateChart(_ dive: DiveSummary) -> some View {
 #Preview {
     ContentView()
 }
-

@@ -109,6 +109,12 @@ private extension PhoneConnectivityManager {
             (240, 18, 88, 25.0, 0.8),  // mid-depth
             (420, 30, 96, 24.2, 1.4)   // longest/deepest
         ]
+        // Toronto pool/leak test locations
+        let mockMeta: [(String, String, Double, Double, Double)] = [
+            ("Toronto Pan Am Sports Centre, Toronto", "Indoor pool • calm", 29.0, 43.7810, -79.2342),
+            ("Alex Duff Memorial Pool, Toronto", "Outdoor pool • light breeze", 27.5, 43.6657, -79.4186),
+            ("Donald D. Summerville Pool, Toronto", "Lake breeze • partly cloudy", 22.0, 43.6685, -79.2958)
+        ]
 
         let summaries: [DiveSummary] = mockConfigs.enumerated().map { idx, config in
             let (duration, maxDepth, endingHR, baseTemp, swing) = config
@@ -117,6 +123,7 @@ private extension PhoneConnectivityManager {
             let profile = simulatedProfile(duration: duration, maxDepth: maxDepth, step: 0.5)
             let heartRates = simulatedHeartRates(duration: duration, step: 0.5)
             let waterTemps = simulatedWaterTemps(duration: duration, base: baseTemp, swing: swing, step: 0.5)
+            let meta = mockMeta[idx % mockMeta.count]
 
             return DiveSummary(
                 startDate: start,
@@ -125,6 +132,11 @@ private extension PhoneConnectivityManager {
                 durationSeconds: duration,
                 endingHeartRate: endingHR,
                 waterTemperatureCelsius: baseTemp,
+                locationDescription: meta.0,
+                weatherSummary: meta.1,
+                weatherAirTempCelsius: meta.2,
+                locationLatitude: meta.3,
+                locationLongitude: meta.4,
                 profile: profile,
                 heartRateSamples: heartRates,
                 waterTempSamples: waterTemps

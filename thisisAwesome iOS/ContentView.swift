@@ -15,6 +15,11 @@ struct ContentView: View {
     @State private var durationRange: ClosedRange<Double> = 0...600
     @State private var sortMode: SortMode = .dateDesc
     @State private var locationFilter: String? = nil
+    @State private var minDurationFilter: Double = 0
+    @State private var displayedCount: Int = 5
+    @State private var hasUserScrolled: Bool = false
+    @State private var isLastCardVisible: Bool = false
+    @State private var isPaging: Bool = false
 
     private func toggleExpansion(for dive: DiveSummary) {
         if expandedDives.contains(dive.id) {
@@ -45,8 +50,10 @@ struct ContentView: View {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         let filteredDives = uniqueDives.filter {
             clampedRange.contains($0.durationSeconds) &&
-            (locationFilter == nil || locationCity($0.locationDescription) == locationFilter)
+            (locationFilter == nil || locationCity($0.locationDescription) == locationFilter) &&
+            ($0.durationSeconds >= minDurationFilter)
         }
+        let limitedDives = Array(filteredDives.prefix(displayedCount))
 
         NavigationStack {
             ZStack {
@@ -57,35 +64,24 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 18) {
+                    LazyVStack(spacing: 18) {
                         header
 
                         filterControls(maxDuration: maxDuration)
                         locationControls(availableLocations: availableLocations)
                         sortControls
 
-                        if let latest = filteredDives.first ?? connectivity.lastDive {
-                let expanded = expandedDives.contains(latest.id)
-                diveCard(latest,
-                         showShare: true,
-                         isExpanded: expanded,
-                         onToggle: { toggleExpansion(for: latest) })
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    toggleExpansion(for: latest)
-                }
-            } else {
-                waitingCard
-            }
-
-                        if filteredDives.count > 1 {
+                        if limitedDives.isEmpty {
+                            waitingCard
+                        } else {
                             VStack(alignment: .leading, spacing: 14) {
-                                Text("Previous dives")
+                                Text("Dives")
                                     .font(.headline)
                                     .foregroundStyle(primaryText)
 
-                                ForEach(filteredDives.dropFirst()) { dive in
+                                ForEach(limitedDives) { dive in
                                     let expanded = expandedDives.contains(dive.id)
+                                    let isLast = dive.id == limitedDives.last?.id
                                     diveCard(dive,
                                              showShare: true,
                                              isExpanded: expanded,
@@ -94,6 +90,64 @@ struct ContentView: View {
                                     .onTapGesture {
                                         toggleExpansion(for: dive)
                                     }
+                                    .onAppear {
+                                        if isLast {
+                                            isLastCardVisible = true
+                                            maybeLoadMore(allDives: filteredDives)
+                                        }
+                                    }
+                                    .onDisappear {
+                                        if isLast {
+                                            isLastCardVisible = false
+                                        }
+                                    }
+                                }
+
+                                Color.clear
+                                    .frame(height: 40)
+                                    .id("pagination-\(displayedCount)")
+                                    .onAppear {
+                                        isLastCardVisible = true
+                                        maybeLoadMore(allDives: filteredDives)
+                                    }
+                                    .onDisappear {
+                                        isLastCardVisible = false
+                                }
+
+                                if isPaging {
+                                    HStack {
+                                        ProgressView()
+                                            .progressViewStyle(.circular)
+                                        Text("Loading more dives…")
+                                            .font(.caption)
+                                            .foregroundStyle(secondaryText)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, 8)
+                                }
+
+                                if displayedCount < filteredDives.count && !isPaging {
+                                    Button {
+                                        hasUserScrolled = true
+                                        loadMoreIfNeeded(allDives: filteredDives)
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "arrow.down.circle")
+                                            Text("Load 5 more")
+                                                .font(.caption.weight(.semibold))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        .background(Color.white)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                                        )
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(primaryText)
                                 }
                             }
                         }
@@ -101,6 +155,11 @@ struct ContentView: View {
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
+                .gesture(DragGesture().onChanged { value in
+                    if value.translation.height != 0 {
+                        hasUserScrolled = true
+                    }
+                })
             }
             .navigationTitle("Dive Sync")
             .navigationBarTitleDisplayMode(.inline)
@@ -109,11 +168,21 @@ struct ContentView: View {
             .toolbarBackground(.clear, for: .navigationBar)
         }
         .onAppear { connectivity.activate() }
+        .onChange(of: filteredDives.count) { _, _ in
+            displayedCount = 5
+            hasUserScrolled = false
+            isLastCardVisible = false
+            isPaging = false
+        }
         .onChange(of: connectivity.diveHistory.first?.id) { _, _ in
             if let latest = connectivity.diveHistory.sorted(by: { $0.endDate > $1.endDate }).first {
                 scrubTime = defaultScrubTime(for: latest)
                 hasSetScrub = false
-                expandedDives.insert(latest.id)
+                expandedDives.removeAll() // do not auto-expand latest
+                displayedCount = 5
+                hasUserScrolled = false
+                isLastCardVisible = false
+                isPaging = false
             } else {
                 resetScrubber()
             }
@@ -151,6 +220,22 @@ struct ContentView: View {
             RangeDurationSlider(range: $durationRange, bounds: 0...maxDuration)
                 .frame(height: 40)
         }
+    }
+
+    private func loadMoreIfNeeded(allDives: [DiveSummary]) {
+        guard !isPaging, displayedCount < allDives.count else { return }
+        isLastCardVisible = false
+        isPaging = true
+        DispatchQueue.main.async {
+            displayedCount = min(displayedCount + 5, allDives.count)
+            hasUserScrolled = false // require another scroll or button tap before loading more
+            isPaging = false
+        }
+    }
+
+    private func maybeLoadMore(allDives: [DiveSummary]) {
+        guard hasUserScrolled, isLastCardVisible else { return }
+        loadMoreIfNeeded(allDives: allDives)
     }
 
     private func locationControls(availableLocations: [String]) -> some View {

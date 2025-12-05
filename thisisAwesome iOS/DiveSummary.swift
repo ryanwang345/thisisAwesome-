@@ -140,17 +140,72 @@ struct DiveSummary: Identifiable, Codable {
     var depthText: String {
         String(format: "%.1f m", maxDepthMeters)
     }
+
+    func withWeather(summary: String?, airTempCelsius: Double?) -> DiveSummary {
+        DiveSummary(
+            id: id,
+            startDate: startDate,
+            endDate: endDate,
+            maxDepthMeters: maxDepthMeters,
+            durationSeconds: durationSeconds,
+            endingHeartRate: endingHeartRate,
+            waterTemperatureCelsius: waterTemperatureCelsius,
+            locationDescription: locationDescription,
+            weatherSummary: summary ?? weatherSummary,
+            weatherAirTempCelsius: airTempCelsius ?? weatherAirTempCelsius,
+            locationLatitude: locationLatitude,
+            locationLongitude: locationLongitude,
+            profile: profile,
+            heartRateSamples: heartRateSamples,
+            waterTempSamples: waterTempSamples
+        )
+    }
+
+    func withLocationDescription(_ description: String?) -> DiveSummary {
+        DiveSummary(
+            id: id,
+            startDate: startDate,
+            endDate: endDate,
+            maxDepthMeters: maxDepthMeters,
+            durationSeconds: durationSeconds,
+            endingHeartRate: endingHeartRate,
+            waterTemperatureCelsius: waterTemperatureCelsius,
+            locationDescription: description ?? locationDescription,
+            weatherSummary: weatherSummary,
+            weatherAirTempCelsius: weatherAirTempCelsius,
+            locationLatitude: locationLatitude,
+            locationLongitude: locationLongitude,
+            profile: profile,
+            heartRateSamples: heartRateSamples,
+            waterTempSamples: waterTempSamples
+        )
+    }
 }
 
 struct DiveSample: Identifiable, Codable {
     let id: UUID
     let seconds: Double
     let depthMeters: Double
+    let latitude: Double?
+    let longitude: Double?
 
-    init(id: UUID = UUID(), seconds: Double, depthMeters: Double) {
+    init(id: UUID = UUID(), seconds: Double, depthMeters: Double, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = id
         self.seconds = seconds
         self.depthMeters = depthMeters
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+
+    var asDictionary: [String: Any] {
+        var dict: [String: Any] = [
+            "id": id.uuidString,
+            "seconds": seconds,
+            "depthMeters": depthMeters
+        ]
+        if let latitude { dict["latitude"] = latitude }
+        if let longitude { dict["longitude"] = longitude }
+        return dict
     }
 }
 
@@ -186,7 +241,9 @@ private extension DiveSummary {
                 return nil
             }
             let rawId = (dict["id"] as? String).flatMap(UUID.init) ?? UUID()
-            return DiveSample(id: rawId, seconds: seconds, depthMeters: depth)
+            let lat = dict["latitude"] as? Double
+            let lon = dict["longitude"] as? Double
+            return DiveSample(id: rawId, seconds: seconds, depthMeters: depth, latitude: lat, longitude: lon)
         }
     }
 

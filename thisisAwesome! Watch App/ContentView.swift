@@ -458,7 +458,7 @@ struct ContentView: View {
         }
         return ("Test Reef", "Sunny", 26.0, 0, 0)
 #else
-        // Real device: leave optional so we don't show incorrect data without a weather/location source.
+        // Real device: leave optional  so we don't show incorrect data without a weather/location source.
         return (nil, nil, nil, nil, nil)
 #endif
     }

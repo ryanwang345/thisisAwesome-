@@ -1,5 +1,6 @@
 import Foundation
 import WatchConnectivity
+import CoreLocation
 internal import Combine
 
 final class PhoneConnectivityManager: NSObject, ObservableObject {
@@ -11,6 +12,7 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let storageKey = "savedDiveSummaries"
     private let historyLimit = 50
+    private let geocoder = CLGeocoder()
 
     func activate() {
 #if targetEnvironment(simulator)
@@ -36,11 +38,18 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
     }
 
     private func handle(userInfo: [String: Any]) {
-        guard let dive = DiveSummary(userInfo: userInfo) else {
+        guard var dive = DiveSummary(userInfo: userInfo) else {
             DispatchQueue.main.async {
                 self.statusMessage = "Received data but could not decode a dive."
             }
             return
+        }
+
+        if dive.locationDescription == nil,
+           let lat = dive.locationLatitude,
+           let lon = dive.locationLongitude {
+            let coordLabel = formatCoordinateLabel(lat: lat, lon: lon)
+            dive = dive.withLocationDescription(coordLabel)
         }
 
         DispatchQueue.main.async {
@@ -48,6 +57,7 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
             self.lastDive = self.diveHistory.first
             self.statusMessage = "Latest dive synced at \(DateFormatter.shortTime.string(from: dive.endDate))."
             self.persistHistory()
+            self.enrichLocationIfNeeded(for: dive)
         }
     }
 }
@@ -87,6 +97,34 @@ extension PhoneConnectivityManager: WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         handle(userInfo: message)
+    }
+}
+
+private extension PhoneConnectivityManager {
+    func enrichLocationIfNeeded(for dive: DiveSummary) {
+        guard let lat = dive.locationLatitude,
+              let lon = dive.locationLongitude else { return }
+
+        let location = CLLocation(latitude: lat, longitude: lon)
+        geocoder.reverseGeocodeLocation(location) { placemarks, error in
+            guard error == nil, let place = placemarks?.first else { return }
+            let parts = [place.locality, place.administrativeArea, place.country].compactMap { $0 }.filter { !$0.isEmpty }
+            let name = parts.prefix(2).joined(separator: ", ")
+            guard !name.isEmpty else { return }
+            let updated = dive.withLocationDescription(name)
+            DispatchQueue.main.async {
+                self.insertIntoHistory(updated)
+                self.lastDive = self.diveHistory.first
+                self.persistHistory()
+                self.statusMessage = "Location updated for latest dive."
+            }
+        }
+    }
+
+    func formatCoordinateLabel(lat: Double, lon: Double) -> String {
+        let latDir = lat >= 0 ? "N" : "S"
+        let lonDir = lon >= 0 ? "E" : "W"
+        return String(format: "%.4f°%@, %.4f°%@", abs(lat), latDir, abs(lon), lonDir)
     }
 }
 

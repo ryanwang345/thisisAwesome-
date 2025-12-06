@@ -12,27 +12,59 @@ final class DiveListViewModel: ObservableObject {
     @Published var isPaging: Bool = false
     @Published var controller: DiveController?
 
-    var uniqueDives: [DiveSummary] {
-        controller?.sortedDives(by: sortMode) ?? []
+    @Published private(set) var uniqueDives: [DiveSummary] = []
+    @Published private(set) var availableLocations: [String] = []
+    @Published private(set) var filteredDives: [DiveSummary] = []
+    @Published private(set) var limitedDives: [DiveSummary] = []
+
+    private var cancellables = Set<AnyCancellable>()
+
+    func bind(controller: DiveController, maxDuration: @escaping () -> Double) {
+        self.controller = controller
+
+        // React to controller history changes
+        controller.$dedupedSorted
+            .map { $0 }
+            .sink { [weak self] dives in
+                self?.uniqueDives = dives
+                self?.recompute(maxDuration: maxDuration())
+            }
+            .store(in: &cancellables)
+
+        // React to filter changes with debounce for slider
+        $durationRange
+            .debounce(for: .milliseconds(180), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.recompute(maxDuration: maxDuration())
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest3($sortMode, $locationFilter, $minDurationFilter)
+            .sink { [weak self] _, _, _ in
+                self?.recompute(maxDuration: maxDuration())
+            }
+            .store(in: &cancellables)
     }
 
-    func clampedRange(maxDuration: Double) -> ClosedRange<Double> {
-        clampRange(durationRange, within: 0...maxDuration)
-    }
+    private func recompute(maxDuration: Double) {
+        guard let controller else {
+            uniqueDives = []
+            availableLocations = []
+            filteredDives = []
+            limitedDives = []
+            return
+        }
 
-    func availableLocations(for dives: [DiveSummary]) -> [String] {
-        controller?.availableLocations(from: dives) ?? []
-    }
+        let sorted = controller.sortedDives(by: sortMode)
+        uniqueDives = sorted
 
-    func filteredDives(from dives: [DiveSummary], range: ClosedRange<Double>) -> [DiveSummary] {
-        controller?.filteredDives(from: dives,
-                                  durationRange: range,
-                                  locationFilter: locationFilter,
-                                  minDuration: minDurationFilter) ?? []
-    }
-
-    func limitedDives(from filtered: [DiveSummary]) -> [DiveSummary] {
-        Array(filtered.prefix(displayedCount))
+        availableLocations = controller.availableLocations(from: sorted)
+        let clamped = clampRange(durationRange, within: 0...maxDuration)
+        filteredDives = controller.filteredDives(from: sorted,
+                                                durationRange: clamped,
+                                                locationFilter: locationFilter,
+                                                minDuration: minDurationFilter)
+        limitedDives = Array(filteredDives.prefix(displayedCount))
     }
 
     func resetPagination() {

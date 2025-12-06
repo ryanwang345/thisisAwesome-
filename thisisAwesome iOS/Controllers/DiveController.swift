@@ -4,6 +4,7 @@ import Combine
 /// Mediates watch connectivity data for the UI.
 final class DiveController: ObservableObject {
     @Published private(set) var diveHistory: [DiveSummary] = []
+    @Published private(set) var dedupedSorted: [DiveSummary] = []
     @Published private(set) var statusMessage: String = "Waiting for the watch to finish a dive..."
     @Published private(set) var isReachable: Bool = false
     @Published private(set) var currentWeather: WeatherSnapshot?
@@ -22,18 +23,7 @@ final class DiveController: ObservableObject {
     }
 
     func sortedDives(by sortMode: SortMode) -> [DiveSummary] {
-        let deduped = Dictionary(grouping: diveHistory) { $0.id }
-            .compactMap { $0.value.first }
-        switch sortMode {
-        case .dateDesc:
-            return deduped.sorted { $0.endDate > $1.endDate }
-        case .dateAsc:
-            return deduped.sorted { $0.endDate < $1.endDate }
-        case .locationAZ:
-            return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedAscending }
-        case .locationZA:
-            return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedDescending }
-        }
+        deduped(by: sortMode, dives: diveHistory)
     }
 
     func filteredDives(from dives: [DiveSummary],
@@ -55,7 +45,12 @@ final class DiveController: ObservableObject {
     private func bindConnectivity() {
         connectivity.$diveHistory
             .receive(on: DispatchQueue.main)
-            .assign(to: &$diveHistory)
+            .sink { [weak self] dives in
+                guard let self else { return }
+                self.diveHistory = dives
+                self.dedupedSorted = self.deduped(by: .dateDesc, dives: dives)
+            }
+            .store(in: &cancellables)
 
         connectivity.$statusMessage
             .receive(on: DispatchQueue.main)
@@ -72,5 +67,20 @@ final class DiveController: ObservableObject {
         connectivity.$weatherError
             .receive(on: DispatchQueue.main)
             .assign(to: &$weatherError)
+    }
+
+    private func deduped(by sortMode: SortMode, dives: [DiveSummary]) -> [DiveSummary] {
+        let deduped = Dictionary(grouping: dives) { $0.id }
+            .compactMap { $0.value.first }
+        switch sortMode {
+        case .dateDesc:
+            return deduped.sorted { $0.endDate > $1.endDate }
+        case .dateAsc:
+            return deduped.sorted { $0.endDate < $1.endDate }
+        case .locationAZ:
+            return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedAscending }
+        case .locationZA:
+            return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedDescending }
+        }
     }
 }

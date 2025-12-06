@@ -81,17 +81,17 @@
 		B1D9E10A3E9D4E5BB7D3F001 /* DiveSummary+Derived.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiveSummary+Derived.swift"; sourceTree = "<group>"; };
 		B1D9E33C3E9D4E5BB7D3F001 /* DiveListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveListViewModel.swift; sourceTree = "<group>"; };
 		B1D9E3003E9D4E5BB7D3F001 /* thisisAwesome_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = thisisAwesome_App.swift; sourceTree = "<group>"; };
-		B1D9E3013E9D4E5BB7D3F001 /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ContentView.swift; sourceTree = "<group>"; name = ContentView.swift; };
-		B1D9E3023E9D4E5BB7D3F001 /* WatchDiveSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/DiveSummary.swift; sourceTree = "<group>"; name = DiveSummary.swift; };
-		B1D9E3033E9D4E5BB7D3F001 /* HeartRateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controllers/HeartRateManager.swift; sourceTree = "<group>"; };
-		B1D9E3043E9D4E5BB7D3F001 /* DiveSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controllers/DiveSyncManager.swift; sourceTree = "<group>"; };
-		B1D9E3053E9D4E5BB7D3F001 /* WaterSubmersionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controllers/WaterSubmersionManager.swift; sourceTree = "<group>"; };
-		B1D9E3063E9D4E5BB7D3F001 /* CompassManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controllers/CompassManager.swift; sourceTree = "<group>"; };
-		B1D9E3073E9D4E5BB7D3F001 /* LocationRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controllers/LocationRecorder.swift; sourceTree = "<group>"; };
-		B1D9E3083E9D4E5BB7D3F001 /* SimulatorMocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/SimulatorMocks.swift; sourceTree = "<group>"; };
+		B1D9E3013E9D4E5BB7D3F001 /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; name = ContentView.swift; };
+		B1D9E3023E9D4E5BB7D3F001 /* WatchDiveSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveSummary.swift; sourceTree = "<group>"; name = DiveSummary.swift; };
+		B1D9E3033E9D4E5BB7D3F001 /* HeartRateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateManager.swift; sourceTree = "<group>"; };
+		B1D9E3043E9D4E5BB7D3F001 /* DiveSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveSyncManager.swift; sourceTree = "<group>"; };
+		B1D9E3053E9D4E5BB7D3F001 /* WaterSubmersionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterSubmersionManager.swift; sourceTree = "<group>"; };
+		B1D9E3063E9D4E5BB7D3F001 /* CompassManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassManager.swift; sourceTree = "<group>"; };
+		B1D9E3073E9D4E5BB7D3F001 /* LocationRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationRecorder.swift; sourceTree = "<group>"; };
+		B1D9E3083E9D4E5BB7D3F001 /* SimulatorMocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorMocks.swift; sourceTree = "<group>"; };
 		B1D9E3093E9D4E5BB7D3F001 /* WatchAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; name = Assets.xcassets; };
 		B1D9E30A3E9D4E5BB7D3F001 /* thisisAwesome_App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = thisisAwesome_App.entitlements; sourceTree = "<group>"; };
-		B1D9E33F3E9D4E5BB7D3F001 /* WatchEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/WatchEnvironment.swift; sourceTree = "<group>"; };
+		B1D9E33F3E9D4E5BB7D3F001 /* WatchEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchEnvironment.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -243,7 +243,7 @@
 				B1D9E3063E9D4E5BB7D3F001 /* CompassManager.swift */,
 				B1D9E3073E9D4E5BB7D3F001 /* LocationRecorder.swift */,
 			);
-			path = "";
+			path = Controllers;
 			sourceTree = "<group>";
 		};
 		B1D9E3213E9D4E5BB7D3F001 /* Models */ = {
@@ -251,7 +251,7 @@
 			children = (
 				B1D9E3023E9D4E5BB7D3F001 /* WatchDiveSummary.swift */,
 			);
-			path = "";
+			path = Models;
 			sourceTree = "<group>";
 		};
 		B1D9E3223E9D4E5BB7D3F001 /* Views */ = {
@@ -259,7 +259,7 @@
 			children = (
 				B1D9E3013E9D4E5BB7D3F001 /* WatchContentView.swift */,
 			);
-			path = "";
+			path = Views;
 			sourceTree = "<group>";
 		};
 		B1D9E3233E9D4E5BB7D3F001 /* Support */ = {
@@ -268,7 +268,7 @@
 				B1D9E3083E9D4E5BB7D3F001 /* SimulatorMocks.swift */,
 				B1D9E33F3E9D4E5BB7D3F001 /* WatchEnvironment.swift */,
 			);
-			path = "";
+			path = Support;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

@@ -29,10 +29,9 @@ struct ContentView: View {
     var body: some View {
         let uniqueDives = listViewModel.uniqueDives
         let maxDuration = max(uniqueDives.map(\.durationSeconds).max() ?? 0, 60)
-        let clampedRange = listViewModel.clampedRange(maxDuration: maxDuration)
-        let availableLocations = listViewModel.availableLocations(for: uniqueDives)
-        let filteredDives = listViewModel.filteredDives(from: uniqueDives, range: clampedRange)
-        let limitedDives = listViewModel.limitedDives(from: filteredDives)
+        let availableLocations = listViewModel.availableLocations
+        let filteredDives = listViewModel.filteredDives
+        let limitedDives = listViewModel.limitedDives
 
         NavigationStack {
             ZStack {
@@ -43,9 +42,7 @@ struct ContentView: View {
                     LazyVStack(spacing: 18) {
                         header
 
-                        filterControls(maxDuration: maxDuration)
-                        locationControls(availableLocations: availableLocations)
-                        sortControls
+                        filtersPanel(maxDuration: maxDuration, availableLocations: availableLocations)
                         metricStrip(dives: filteredDives)
                         weatherCard()
 
@@ -143,7 +140,9 @@ struct ContentView: View {
         }
         .onAppear {
             if listViewModel.controller == nil {
-                listViewModel.controller = controller
+                listViewModel.bind(controller: controller) {
+                    max(listViewModel.uniqueDives.map(\.durationSeconds).max() ?? 0, 60)
+                }
             }
             controller.activate()
         }
@@ -276,10 +275,10 @@ struct ContentView: View {
         .glassCard(cornerRadius: 22, opacity: 0.22)
     }
 
-    private func filterControls(maxDuration: Double) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func filtersPanel(maxDuration: Double, availableLocations: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Filter by duration", systemImage: "slider.horizontal.3")
+                Label("Filters", systemImage: "slider.horizontal.3")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(secondaryText)
                 Spacer()
@@ -290,77 +289,58 @@ struct ContentView: View {
                     .padding(.vertical, 6)
                     .glassPill(opacity: 0.22, shadow: 0)
             }
+
             RangeDurationSlider(range: $listViewModel.durationRange, bounds: 0...maxDuration)
                 .frame(height: 44)
-        }
-        .padding(16)
-        .glassCard(cornerRadius: 18, opacity: 0.2)
-    }
 
-    private func locationControls(availableLocations: [String]) -> some View {
-        HStack {
-            Label("Location", systemImage: "mappin.and.ellipse")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(secondaryText)
-            Menu {
-                Button {
-                    listViewModel.locationFilter = nil
+            HStack(spacing: 12) {
+                Menu {
+                    Button {
+                        listViewModel.locationFilter = nil
+                    } label: {
+                        Label("All locations", systemImage: listViewModel.locationFilter == nil ? "checkmark" : "")
+                    }
+                    ForEach(availableLocations, id: \.self) { city in
+                        Button {
+                            listViewModel.locationFilter = city
+                        } label: {
+                            Label(city, systemImage: listViewModel.locationFilter == city ? "checkmark" : "")
+                        }
+                    }
                 } label: {
-                    Label("All locations", systemImage: listViewModel.locationFilter == nil ? "checkmark" : "")
-                }
-                ForEach(availableLocations, id: \.self) { city in
-                    Button {
-                        listViewModel.locationFilter = city
-                    } label: {
-                        Label(city, systemImage: listViewModel.locationFilter == city ? "checkmark" : "")
+                    HStack(spacing: 6) {
+                        Image(systemName: "mappin.and.ellipse")
+                        Text(listViewModel.locationFilter ?? "All locations")
+                            .font(.caption.weight(.bold))
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassPill()
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                    Text(listViewModel.locationFilter ?? "All locations")
-                        .font(.caption.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .glassPill()
-            }
-            Spacer()
-        }
-        .padding(16)
-        .glassCard(cornerRadius: 18, opacity: 0.2)
-    }
 
-    private var sortControls: some View {
-        HStack {
-            Label("Sort by", systemImage: "arrow.up.arrow.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(secondaryText)
-            Menu {
-                ForEach(SortMode.allCases) { option in
-                    Button {
-                        listViewModel.sortMode = option
-                    } label: {
-                        Label(option.label, systemImage: option == listViewModel.sortMode ? "checkmark" : "")
+                Menu {
+                    ForEach(SortMode.allCases) { option in
+                        Button {
+                            listViewModel.sortMode = option
+                        } label: {
+                            Label(option.label, systemImage: option == listViewModel.sortMode ? "checkmark" : "")
+                        }
                     }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.arrow.down")
+                        Text(listViewModel.sortMode.label)
+                            .font(.caption.weight(.bold))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption.weight(.bold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassPill()
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkle.magnifyingglass")
-                    Text(listViewModel.sortMode.label)
-                        .font(.caption.weight(.bold))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.bold))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .glassPill()
             }
-            Spacer()
         }
         .padding(16)
         .glassCard(cornerRadius: 18, opacity: 0.2)

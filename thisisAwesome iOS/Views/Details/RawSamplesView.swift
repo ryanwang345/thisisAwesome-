@@ -37,12 +37,16 @@ struct RawSamplesView: View {
             }
         }
         .padding(12)
-        .background(Color(red: 0.97, green: 0.98, blue: 1.0))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.16), lineWidth: 1.1)
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: Color.cyan.opacity(0.14), radius: 14, y: 6)
     }
 
     private func rawSection(title: String, color: Color, rows: [RawRow]) -> some View {
@@ -80,13 +84,16 @@ struct RawSamplesView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.white.opacity(0.14))
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                )
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .shadow(color: .black.opacity(0.03), radius: 2, y: 1)
+                        .shadow(color: color.opacity(0.18), radius: 6, y: 2)
                     }
                 }
             }
@@ -103,10 +110,15 @@ struct RawSamplesView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .foregroundStyle(color)
-        .background(color.opacity(0.12))
-        .overlay(
-            Capsule().stroke(color.opacity(0.3), lineWidth: 1)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.16))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(color.opacity(0.35), lineWidth: 1.1)
+                )
         )
+        .shadow(color: color.opacity(0.25), radius: 6, y: 2)
         .clipShape(Capsule())
     }
 

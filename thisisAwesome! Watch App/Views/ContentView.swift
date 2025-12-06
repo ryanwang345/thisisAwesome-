@@ -7,6 +7,7 @@
 
 import SwiftUI
 import WatchKit
+import CoreLocation
 
 // MARK: - Dive State
 
@@ -38,10 +39,12 @@ struct ContentView: View {
     private let heartRateSampleInterval: TimeInterval = 0.5
     private let waterTempSampleInterval: TimeInterval = 0.5
 
-    @StateObject private var heartRateManager = HeartRateManager()
-    @StateObject private var waterManager = ActiveWaterSubmersionManager()
-    @StateObject private var compassManager = CompassManager()
-    @StateObject private var syncManager = DiveSyncManager()
+    @EnvironmentObject private var environment: WatchEnvironment
+    private var heartRateManager: HeartRateManager { environment.heartRateManager }
+    private var waterManager: ActiveWaterSubmersionManager { environment.waterManager }
+    private var compassManager: CompassManager { environment.compassManager }
+    private var syncManager: DiveSyncManager { environment.syncManager }
+    private var locationRecorder: LocationRecorder { environment.locationRecorder }
 
     var body: some View {
         ZStack {
@@ -232,6 +235,7 @@ struct ContentView: View {
             waterManager.start()
             compassManager.start()
             syncManager.activate()
+            locationRecorder.start()
         }
         .onDisappear {
             timer?.invalidate()
@@ -239,6 +243,7 @@ struct ContentView: View {
             heartRateManager.stop()
             waterManager.stop()
             compassManager.stop()
+            locationRecorder.stop()
         }
         .onReceive(waterManager.$depthMeters) { depth in
             handleDepthChange(to: depth)
@@ -458,8 +463,13 @@ struct ContentView: View {
         }
         return ("Test Reef", "Sunny", 26.0, 0, 0)
 #else
-        // Real device: leave optional  so we don't show incorrect data without a weather/location source.
-        return (nil, nil, nil, nil, nil)
+        if let fix = locationRecorder.lastLocation {
+            let coord = fix.coordinate
+            let description = formatCoordinateLabel(lat: coord.latitude, lon: coord.longitude)
+            return (description, nil, nil, coord.latitude, coord.longitude)
+        } else {
+            return (nil, nil, nil, nil, nil)
+        }
 #endif
     }
 
@@ -488,6 +498,12 @@ struct ContentView: View {
     private func loadSavedSummaries() -> [DiveSummary] {
         guard let data = UserDefaults.standard.data(forKey: diveStorageKey) else { return [] }
         return (try? JSONDecoder().decode([DiveSummary].self, from: data)) ?? []
+    }
+
+    private func formatCoordinateLabel(lat: Double, lon: Double) -> String {
+        let latDir = lat >= 0 ? "N" : "S"
+        let lonDir = lon >= 0 ? "E" : "W"
+        return String(format: "%.4f°%@, %.4f°%@", abs(lat), latDir, abs(lon), lonDir)
     }
 
     // MARK: - Debug export/logging (watch-side)

@@ -1,18 +1,21 @@
 import Foundation
 import WatchConnectivity
 import CoreLocation
-internal import Combine
+import Combine
 
 final class PhoneConnectivityManager: NSObject, ObservableObject {
     @Published var lastDive: DiveSummary?
     @Published var diveHistory: [DiveSummary] = []
     @Published var statusMessage: String = "Waiting for the watch to finish a dive..."
     @Published var isReachable: Bool = false
+    @Published var currentWeather: WeatherSnapshot?
+    @Published var weatherError: String?
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let storageKey = "savedDiveSummaries"
     private let historyLimit = 50
     private let geocoder = CLGeocoder()
+    private let weatherGeocoder = CLGeocoder()
 
     func activate() {
 #if targetEnvironment(simulator)
@@ -34,6 +37,9 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
             diveHistory = saved.sorted { $0.endDate > $1.endDate }
             lastDive = diveHistory.first
             statusMessage = "Loaded last saved dive."
+            if let latest = lastDive {
+                fetchWeatherIfPossible(for: latest)
+            }
         }
     }
 
@@ -58,6 +64,7 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
             self.statusMessage = "Latest dive synced at \(DateFormatter.shortTime.string(from: dive.endDate))."
             self.persistHistory()
             self.enrichLocationIfNeeded(for: dive)
+            self.fetchWeatherIfPossible(for: dive)
         }
     }
 }
@@ -68,26 +75,28 @@ extension PhoneConnectivityManager: WCSessionDelegate {
             if let error {
                 self.statusMessage = "Session failed: \(error.localizedDescription)"
             } else {
-                self.statusMessage = activationState == .activated ? "Connected to watch" : "Session inactive"
+                self.updateStatus(for: session, activationState: activationState)
             }
-            self.isReachable = session.isReachable
         }
     }
 
     func sessionDidBecomeInactive(_ session: WCSession) {
         DispatchQueue.main.async {
-            self.isReachable = session.isReachable
-            self.statusMessage = "Session inactive"
+            self.updateStatus(for: session, activationState: .inactive)
         }
     }
 
     func sessionDidDeactivate(_ session: WCSession) {
+        DispatchQueue.main.async {
+            self.isReachable = false
+            self.statusMessage = "Reconnecting to watch..."
+        }
         session.activate()
     }
 
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+            self.updateStatus(for: session)
         }
     }
 
@@ -101,6 +110,109 @@ extension PhoneConnectivityManager: WCSessionDelegate {
 }
 
 private extension PhoneConnectivityManager {
+    func updateStatus(for session: WCSession?, activationState: WCSessionActivationState? = nil) {
+        guard let session else {
+            statusMessage = "WatchConnectivity unavailable."
+            isReachable = false
+            return
+        }
+
+        let state = activationState ?? session.activationState
+        let reachable = session.isReachable
+        isReachable = reachable
+
+        switch state {
+        case .activated:
+            statusMessage = reachable ? "Connected to watch" : "Watch not reachable"
+        case .inactive:
+            statusMessage = "Session inactive"
+        case .notActivated:
+            statusMessage = "Session not activated"
+        @unknown default:
+            statusMessage = "Session state unknown"
+        }
+    }
+
+    func fetchWeatherIfPossible(for dive: DiveSummary) {
+        if let lat = dive.locationLatitude, let lon = dive.locationLongitude {
+            fetchWeather(latitude: lat, longitude: lon, dive: dive)
+            return
+        }
+
+        // Fallback: geocode the location description if coordinates were not sent
+        if let description = dive.locationDescription, !description.isEmpty {
+            weatherGeocoder.cancelGeocode()
+            weatherGeocoder.geocodeAddressString(description) { [weak self] placemarks, error in
+                guard let self else { return }
+                if let error {
+                    DispatchQueue.main.async { self.weatherError = error.localizedDescription }
+                    return
+                }
+                guard let coord = placemarks?.first?.location?.coordinate else { return }
+                self.fetchWeather(latitude: coord.latitude, longitude: coord.longitude, dive: dive)
+            }
+        }
+    }
+
+    func fetchWeather(latitude: Double, longitude: Double, dive: DiveSummary) {
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&current_weather=true"
+        guard let url = URL(string: urlString) else { return }
+
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error {
+                DispatchQueue.main.async { self.weatherError = error.localizedDescription }
+                return
+            }
+            guard let data else {
+                DispatchQueue.main.async { self.weatherError = "No weather data received." }
+                return
+            }
+            do {
+                let decoded = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+                guard let current = decoded.currentWeather else {
+                    DispatchQueue.main.async { self.weatherError = "Weather unavailable." }
+                    return
+                }
+                let snapshot = WeatherSnapshot(
+                    temperatureC: current.temperature,
+                    windSpeedKmh: current.windSpeed,
+                    condition: self.weatherDescription(code: current.weatherCode),
+                    symbolName: self.weatherSymbol(code: current.weatherCode),
+                    timestamp: current.time,
+                    latitude: latitude,
+                    longitude: longitude
+                )
+                DispatchQueue.main.async {
+                    self.currentWeather = snapshot
+                    self.weatherError = nil
+                    self.applyWeatherSnapshot(snapshot, for: dive.id)
+                }
+            } catch {
+                DispatchQueue.main.async { self.weatherError = error.localizedDescription }
+            }
+        }
+        task.resume()
+    }
+
+    func applyWeatherSnapshot(_ snapshot: WeatherSnapshot, for diveID: UUID) {
+        var updatedDive: DiveSummary?
+
+        if let idx = diveHistory.firstIndex(where: { $0.id == diveID }) {
+            let updated = diveHistory[idx].withWeather(summary: snapshot.condition, airTempCelsius: snapshot.temperatureC)
+            diveHistory[idx] = updated
+            updatedDive = updated
+        } else if let current = lastDive, current.id == diveID {
+            updatedDive = current.withWeather(summary: snapshot.condition, airTempCelsius: snapshot.temperatureC)
+        }
+
+        if let updated = updatedDive {
+            lastDive = updated
+            insertIntoHistory(updated)
+            persistHistory()
+        }
+    }
+
     func enrichLocationIfNeeded(for dive: DiveSummary) {
         guard let lat = dive.locationLatitude,
               let lon = dive.locationLongitude else { return }
@@ -116,15 +228,92 @@ private extension PhoneConnectivityManager {
                 self.insertIntoHistory(updated)
                 self.lastDive = self.diveHistory.first
                 self.persistHistory()
-                self.statusMessage = "Location updated for latest dive."
-            }
+            self.statusMessage = "Location updated for latest dive."
+            self.fetchWeatherIfPossible(for: updated)
         }
+    }
     }
 
     func formatCoordinateLabel(lat: Double, lon: Double) -> String {
         let latDir = lat >= 0 ? "N" : "S"
         let lonDir = lon >= 0 ? "E" : "W"
         return String(format: "%.4f°%@, %.4f°%@", abs(lat), latDir, abs(lon), lonDir)
+    }
+
+    func weatherDescription(code: Int) -> String {
+        switch code {
+        case 0: return "Clear sky"
+        case 1, 2, 3: return "Partly cloudy"
+        case 45, 48: return "Foggy"
+        case 51, 53, 55: return "Drizzle"
+        case 61, 63, 65: return "Rain"
+        case 71, 73, 75: return "Snow"
+        case 80, 81, 82: return "Showers"
+        case 95, 96, 99: return "Thunderstorm"
+        default: return "Weather update"
+        }
+    }
+
+    func weatherSymbol(code: Int) -> String {
+        switch code {
+        case 0: return "sun.max.fill"
+        case 1, 2, 3: return "cloud.sun.fill"
+        case 45, 48: return "cloud.fog.fill"
+        case 51, 53, 55: return "cloud.drizzle.fill"
+        case 61, 63, 65: return "cloud.rain.fill"
+        case 71, 73, 75: return "snow"
+        case 80, 81, 82: return "cloud.heavyrain.fill"
+        case 95, 96, 99: return "cloud.bolt.rain.fill"
+        default: return "cloud.fill"
+        }
+    }
+}
+
+struct WeatherSnapshot: Equatable {
+    let temperatureC: Double
+    let windSpeedKmh: Double
+    let condition: String
+    let symbolName: String
+    let timestamp: Date
+    let latitude: Double
+    let longitude: Double
+}
+
+private struct OpenMeteoResponse: Decodable {
+    let currentWeather: CurrentWeather?
+
+    private enum CodingKeys: String, CodingKey {
+        case currentWeather = "current_weather"
+    }
+}
+
+private struct CurrentWeather: Decodable {
+    let temperature: Double
+    let windSpeed: Double
+    let weatherCode: Int
+    let time: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case temperature
+        case windSpeed = "windspeed"
+        case weatherCode = "weathercode"
+        case time
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        temperature = try container.decode(Double.self, forKey: .temperature)
+        windSpeed = try container.decode(Double.self, forKey: .windSpeed)
+        weatherCode = try container.decode(Int.self, forKey: .weatherCode)
+
+        if let timeString = try? container.decode(String.self, forKey: .time),
+           let date = ISO8601DateFormatter().date(from: timeString) {
+            time = date
+        } else if let timestamp = try? container.decode(Double.self, forKey: .time) {
+            time = Date(timeIntervalSince1970: timestamp)
+        } else {
+            time = Date()
+        }
     }
 }
 

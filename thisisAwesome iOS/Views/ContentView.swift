@@ -4,22 +4,19 @@ import UIKit
 import MapKit
 
 struct ContentView: View {
-    @StateObject private var connectivity = PhoneConnectivityManager()
-    private let primaryText = Color(red: 0.05, green: 0.08, blue: 0.15)
-    private let secondaryText = Color(red: 0.30, green: 0.34, blue: 0.40)
+    @EnvironmentObject private var environment: AppEnvironment
+    private var controller: DiveController { environment.diveController }
+    private let primaryText = Color.white.opacity(0.96)
+    private let secondaryText = Color.white.opacity(0.72)
+    private let neonBlue = Color(red: 0.38, green: 0.86, blue: 1.0)
+    private let neonPurple = Color(red: 0.72, green: 0.56, blue: 1.0)
+    private let midnight = Color(red: 0.03, green: 0.06, blue: 0.12)
     @State private var selectedDepthTime: Double?
     @State private var selectedHeartTime: Double?
     @State private var scrubTime: Double = 0
     @State private var hasSetScrub: Bool = false
     @State private var expandedDives: Set<UUID> = []
-    @State private var durationRange: ClosedRange<Double> = 0...600
-    @State private var sortMode: SortMode = .dateDesc
-    @State private var locationFilter: String? = nil
-    @State private var minDurationFilter: Double = 0
-    @State private var displayedCount: Int = 5
-    @State private var hasUserScrolled: Bool = false
-    @State private var isLastCardVisible: Bool = false
-    @State private var isPaging: Bool = false
+    @StateObject private var listViewModel = DiveListViewModel()
 
     private func toggleExpansion(for dive: DiveSummary) {
         if expandedDives.contains(dive.id) {
@@ -30,37 +27,16 @@ struct ContentView: View {
     }
 
     var body: some View {
-        let uniqueDives: [DiveSummary] = {
-            let deduped = Dictionary(grouping: connectivity.diveHistory) { $0.id }
-                .compactMap { $0.value.first }
-            switch sortMode {
-            case .dateDesc:
-                return deduped.sorted { $0.endDate > $1.endDate }
-            case .dateAsc:
-                return deduped.sorted { $0.endDate < $1.endDate }
-            case .locationAZ:
-                return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedAscending }
-            case .locationZA:
-                return deduped.sorted { ($0.locationDescription ?? "").localizedCaseInsensitiveCompare($1.locationDescription ?? "") == .orderedDescending }
-            }
-        }()
+        let uniqueDives = listViewModel.uniqueDives
         let maxDuration = max(uniqueDives.map(\.durationSeconds).max() ?? 0, 60)
-        let clampedRange = clampRange(durationRange, within: 0...maxDuration)
-        let availableLocations = Array(Set(uniqueDives.compactMap { locationCity($0.locationDescription) }))
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        let filteredDives = uniqueDives.filter {
-            clampedRange.contains($0.durationSeconds) &&
-            (locationFilter == nil || locationCity($0.locationDescription) == locationFilter) &&
-            ($0.durationSeconds >= minDurationFilter)
-        }
-        let limitedDives = Array(filteredDives.prefix(displayedCount))
+        let clampedRange = listViewModel.clampedRange(maxDuration: maxDuration)
+        let availableLocations = listViewModel.availableLocations(for: uniqueDives)
+        let filteredDives = listViewModel.filteredDives(from: uniqueDives, range: clampedRange)
+        let limitedDives = listViewModel.limitedDives(from: filteredDives)
 
         NavigationStack {
             ZStack {
-                LinearGradient(colors: [
-                    Color(red: 0.95, green: 0.97, blue: 1.0),
-                    Color(red: 0.78, green: 0.90, blue: 0.98)
-                ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                glassBackdrop
                     .ignoresSafeArea()
 
                 ScrollView {
@@ -70,6 +46,8 @@ struct ContentView: View {
                         filterControls(maxDuration: maxDuration)
                         locationControls(availableLocations: availableLocations)
                         sortControls
+                        metricStrip(dives: filteredDives)
+                        weatherCard()
 
                         if limitedDives.isEmpty {
                             waitingCard
@@ -82,39 +60,40 @@ struct ContentView: View {
                                 ForEach(limitedDives) { dive in
                                     let expanded = expandedDives.contains(dive.id)
                                     let isLast = dive.id == limitedDives.last?.id
-                                    diveCard(dive,
-                                             showShare: true,
-                                             isExpanded: expanded,
-                                             onToggle: { toggleExpansion(for: dive) })
+                diveCard(dive,
+                         showShare: true,
+                         showMap: true,
+                         isExpanded: expanded,
+                         onToggle: { toggleExpansion(for: dive) })
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         toggleExpansion(for: dive)
                                     }
                                     .onAppear {
                                         if isLast {
-                                            isLastCardVisible = true
-                                            maybeLoadMore(allDives: filteredDives)
+                                            listViewModel.isLastCardVisible = true
+                                            listViewModel.maybeLoadMore(allDives: filteredDives)
                                         }
                                     }
                                     .onDisappear {
                                         if isLast {
-                                            isLastCardVisible = false
+                                            listViewModel.isLastCardVisible = false
                                         }
                                     }
                                 }
 
                                 Color.clear
                                     .frame(height: 40)
-                                    .id("pagination-\(displayedCount)")
+                                    .id("pagination-\(listViewModel.displayedCount)")
                                     .onAppear {
-                                        isLastCardVisible = true
-                                        maybeLoadMore(allDives: filteredDives)
+                                        listViewModel.isLastCardVisible = true
+                                        listViewModel.maybeLoadMore(allDives: filteredDives)
                                     }
                                     .onDisappear {
-                                        isLastCardVisible = false
+                                        listViewModel.isLastCardVisible = false
                                 }
 
-                                if isPaging {
+                                if listViewModel.isPaging {
                                     HStack {
                                         ProgressView()
                                             .progressViewStyle(.circular)
@@ -126,10 +105,10 @@ struct ContentView: View {
                                     .padding(.top, 8)
                                 }
 
-                                if displayedCount < filteredDives.count && !isPaging {
+                                if listViewModel.displayedCount < filteredDives.count && !listViewModel.isPaging {
                                     Button {
-                                        hasUserScrolled = true
-                                        loadMoreIfNeeded(allDives: filteredDives)
+                                        listViewModel.hasUserScrolled = true
+                                        listViewModel.loadMoreIfNeeded(allDives: filteredDives)
                                     } label: {
                                         HStack(spacing: 8) {
                                             Image(systemName: "arrow.down.circle")
@@ -137,14 +116,8 @@ struct ContentView: View {
                                                 .font(.caption.weight(.semibold))
                                         }
                                         .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                        .background(Color.white)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                                        )
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                                        .padding(.vertical, 12)
+                                        .glassCard(cornerRadius: 14, opacity: 0.22, shadow: 12, y: 6)
                                     }
                                     .buttonStyle(.plain)
                                     .foregroundStyle(primaryText)
@@ -155,34 +128,34 @@ struct ContentView: View {
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
+                .scrollIndicators(.hidden)
                 .gesture(DragGesture().onChanged { value in
                     if value.translation.height != 0 {
-                        hasUserScrolled = true
+                        listViewModel.hasUserScrolled = true
                     }
                 })
             }
             .navigationTitle("Dive Sync")
             .navigationBarTitleDisplayMode(.inline)
             .foregroundStyle(primaryText)
-            .toolbarColorScheme(.light, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbarBackground(.clear, for: .navigationBar)
         }
-        .onAppear { connectivity.activate() }
-        .onChange(of: filteredDives.count) { _, _ in
-            displayedCount = 5
-            hasUserScrolled = false
-            isLastCardVisible = false
-            isPaging = false
+        .onAppear {
+            if listViewModel.controller == nil {
+                listViewModel.controller = controller
+            }
+            controller.activate()
         }
-        .onChange(of: connectivity.diveHistory.first?.id) { _, _ in
-            if let latest = connectivity.diveHistory.sorted(by: { $0.endDate > $1.endDate }).first {
+        .onChange(of: filteredDives.count) { _, _ in
+            listViewModel.resetPagination()
+        }
+        .onChange(of: controller.diveHistory.first?.id) { _, _ in
+            if let latest = controller.diveHistory.sorted(by: { $0.endDate > $1.endDate }).first {
                 scrubTime = defaultScrubTime(for: latest)
                 hasSetScrub = false
                 expandedDives.removeAll() // do not auto-expand latest
-                displayedCount = 5
-                hasUserScrolled = false
-                isLastCardVisible = false
-                isPaging = false
+                listViewModel.resetPagination()
             } else {
                 resetScrubber()
             }
@@ -191,149 +164,229 @@ struct ContentView: View {
             selectedDepthTime = newValue
             selectedHeartTime = newValue
         }
-        .preferredColorScheme(.light) // ensure text stays dark on light gradient
+        .preferredColorScheme(.dark)
+    }
+
+    private var glassBackdrop: some View {
+        ZStack {
+            LinearGradient(colors: [
+                Color(red: 0.02, green: 0.08, blue: 0.18),
+                Color(red: 0.02, green: 0.04, blue: 0.10)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+
+            Circle()
+                .fill(
+                    RadialGradient(colors: [neonBlue.opacity(0.5), Color.clear],
+                                   center: .center,
+                                   startRadius: 20,
+                                   endRadius: 320)
+                )
+                .blur(radius: 90)
+                .offset(x: -120, y: -260)
+                .allowsHitTesting(false)
+
+            Circle()
+                .fill(
+                    RadialGradient(colors: [neonPurple.opacity(0.45), Color.clear],
+                                   center: .center,
+                                   startRadius: 10,
+                                   endRadius: 260)
+                )
+                .blur(radius: 110)
+                .offset(x: 160, y: 140)
+                .allowsHitTesting(false)
+
+            RoundedRectangle(cornerRadius: 80, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [neonBlue.opacity(0.25), neonPurple.opacity(0.12)],
+                                             startPoint: .topLeading,
+                                             endPoint: .bottomTrailing),
+                              lineWidth: 1.2)
+                .blur(radius: 20)
+                .scaleEffect(1.05)
+                .padding(30)
+                .allowsHitTesting(false)
+        }
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(connectivity.isReachable ? Color.green : Color.orange)
-                .frame(width: 12, height: 12)
-            Text(connectivity.isReachable ? "Connected to watch" : connectivity.statusMessage)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(primaryText)
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(colors: [neonBlue.opacity(0.75), neonPurple.opacity(0.7)],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing)
+                    )
+                    .frame(width: 58, height: 58)
+                    .blur(radius: 8)
+                    .opacity(0.7)
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 58, height: 58)
+                    .overlay(
+                        Circle()
+                            .stroke(LinearGradient(colors: [Color.white.opacity(0.65), Color.white.opacity(0.18)],
+                                                   startPoint: .topLeading,
+                                                   endPoint: .bottomTrailing),
+                                    lineWidth: 1.2)
+                    )
+                    .shadow(color: neonBlue.opacity(0.24), radius: 16, y: 10)
+                Image(systemName: controller.isReachable ? "antenna.radiowaves.left.and.right" : "wifi.slash")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(primaryText)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Dive Sync")
+                    .font(.title3.weight(.heavy))
+                    .foregroundStyle(LinearGradient(colors: [primaryText, neonBlue.opacity(0.95)], startPoint: .leading, endPoint: .trailing))
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(controller.isReachable ? Color.green.opacity(0.8) : Color.orange.opacity(0.9))
+                        .frame(width: 10, height: 10)
+                    Text(controller.isReachable ? "Connected to watch" : controller.statusMessage)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                }
+
+                Text("Fluid glass interface tuned for your dives.")
+                    .font(.caption)
+                    .foregroundStyle(secondaryText)
+            }
+
             Spacer()
+
+            VStack(alignment: .trailing, spacing: 8) {
+                Text(controller.isReachable ? "Live" : "Standby")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassPill(opacity: 0.22, shadow: 0)
+                    .foregroundStyle(primaryText)
+
+                Text("\(controller.diveHistory.count) dive\(controller.diveHistory.count == 1 ? "" : "s")")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(secondaryText)
+            }
         }
+        .padding(16)
+        .glassCard(cornerRadius: 22, opacity: 0.22)
     }
 
     private func filterControls(maxDuration: Double) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Filter by duration")
+                Label("Filter by duration", systemImage: "slider.horizontal.3")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(secondaryText)
                 Spacer()
-                Text("\(formattedElapsed(durationRange.lowerBound)) – \(formattedElapsed(durationRange.upperBound))")
-                    .font(.caption.weight(.semibold))
+                Text("\(formattedElapsed(listViewModel.durationRange.lowerBound)) – \(formattedElapsed(listViewModel.durationRange.upperBound))")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassPill(opacity: 0.22, shadow: 0)
             }
-            RangeDurationSlider(range: $durationRange, bounds: 0...maxDuration)
-                .frame(height: 40)
+            RangeDurationSlider(range: $listViewModel.durationRange, bounds: 0...maxDuration)
+                .frame(height: 44)
         }
-    }
-
-    private func loadMoreIfNeeded(allDives: [DiveSummary]) {
-        guard !isPaging, displayedCount < allDives.count else { return }
-        isLastCardVisible = false
-        isPaging = true
-        DispatchQueue.main.async {
-            displayedCount = min(displayedCount + 5, allDives.count)
-            hasUserScrolled = false // require another scroll or button tap before loading more
-            isPaging = false
-        }
-    }
-
-    private func maybeLoadMore(allDives: [DiveSummary]) {
-        guard hasUserScrolled, isLastCardVisible else { return }
-        loadMoreIfNeeded(allDives: allDives)
+        .padding(16)
+        .glassCard(cornerRadius: 18, opacity: 0.2)
     }
 
     private func locationControls(availableLocations: [String]) -> some View {
         HStack {
-            Text("Location")
+            Label("Location", systemImage: "mappin.and.ellipse")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(secondaryText)
             Menu {
                 Button {
-                    locationFilter = nil
+                    listViewModel.locationFilter = nil
                 } label: {
-                    Label("All locations", systemImage: locationFilter == nil ? "checkmark" : "")
+                    Label("All locations", systemImage: listViewModel.locationFilter == nil ? "checkmark" : "")
                 }
                 ForEach(availableLocations, id: \.self) { city in
                     Button {
-                        locationFilter = city
+                        listViewModel.locationFilter = city
                     } label: {
-                        Label(city, systemImage: locationFilter == city ? "checkmark" : "")
+                        Label(city, systemImage: listViewModel.locationFilter == city ? "checkmark" : "")
                     }
                 }
             } label: {
-                HStack(spacing: 6) {
-                    Text(locationFilter ?? "All locations")
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text(listViewModel.locationFilter ?? "All locations")
                         .font(.caption.weight(.bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
-                    Image(systemName: "mappin.and.ellipse")
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassPill()
             }
             Spacer()
         }
+        .padding(16)
+        .glassCard(cornerRadius: 18, opacity: 0.2)
     }
 
     private var sortControls: some View {
         HStack {
-            Text("Sort by")
+            Label("Sort by", systemImage: "arrow.up.arrow.down")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(secondaryText)
             Menu {
                 ForEach(SortMode.allCases) { option in
                     Button {
-                        sortMode = option
+                        listViewModel.sortMode = option
                     } label: {
-                        Label(option.label, systemImage: option == sortMode ? "checkmark" : "")
+                        Label(option.label, systemImage: option == listViewModel.sortMode ? "checkmark" : "")
                     }
                 }
             } label: {
-                HStack(spacing: 6) {
-                    Text(sortMode.label)
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkle.magnifyingglass")
+                    Text(listViewModel.sortMode.label)
                         .font(.caption.weight(.bold))
-                    Image(systemName: "arrow.up.arrow.down")
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassPill()
             }
             Spacer()
         }
+        .padding(16)
+        .glassCard(cornerRadius: 18, opacity: 0.2)
     }
 
     private var waitingCard: some View {
         VStack(spacing: 10) {
             Image(systemName: "wifi")
                 .font(.largeTitle)
-                .foregroundStyle(Color.blue)
+                .foregroundStyle(neonBlue)
             Text("Finish a dive on your Apple Watch to sync the summary here.")
                 .font(.headline)
                 .foregroundStyle(primaryText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
+            Text("The new liquid glass layout will light up as soon as data flows in.")
+                .font(.caption)
+                .foregroundStyle(secondaryText)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(20)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .glassCard(cornerRadius: 20, opacity: 0.22)
     }
 
-    private func diveCard(_ dive: DiveSummary, showShare: Bool = true, isExpanded: Bool = true, onToggle: (() -> Void)? = nil) -> some View {
+    private func diveCard(_ dive: DiveSummary, showShare: Bool = true, showMap: Bool = true, isExpanded: Bool = true, onToggle: (() -> Void)? = nil) -> some View {
         let profileSamples = profilePoints(for: dive)
 
         return VStack(alignment: .leading, spacing: 14) {
@@ -367,13 +420,7 @@ struct ContentView: View {
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(Color.white)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
-                            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                            .glassPill(opacity: 0.22)
                         }
                         .foregroundStyle(primaryText)
                         .accessibilityLabel("Share dive")
@@ -382,9 +429,8 @@ struct ContentView: View {
                         Button(action: onToggle) {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                                 .font(.subheadline.weight(.bold))
-                                .frame(width: 36, height: 36)
-                                .background(Color.white.opacity(0.7))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .frame(width: 38, height: 38)
+                                .glassPill(opacity: 0.22, shadow: 0)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(primaryText)
@@ -396,7 +442,9 @@ struct ContentView: View {
                         Text(dive.depthText)
                             .font(.system(size: 34, weight: .heavy, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(LinearGradient(colors: [neonBlue, neonPurple.opacity(0.9)],
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing))
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                         Text("Max depth")
@@ -407,21 +455,21 @@ struct ContentView: View {
                     Spacer()
                     HStack(spacing: 12) {
                         stat(label: "Duration", value: dive.durationText)
-                        Divider().frame(height: 28).background(secondaryText.opacity(0.2))
-                        stat(label: "Avg. Heart Rate", value: averageHeartRateText(for: dive))
+                        Divider().frame(height: 28).background(secondaryText.opacity(0.25))
+                        stat(label: "Avg. Heart Rate", value: dive.averageHeartRateText)
                     }
                 }
             }
 
-            HStack {
-                stat(label: "Duration", value: dive.durationText)
-                Spacer()
-                stat(label: "Avg. Heart Rate", value: averageHeartRateText(for: dive))
-                Spacer()
-                stat(label: "Water Temp", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--", color: .white)
+            HStack(spacing: 12) {
+                capsuleStat(label: "Duration", value: dive.durationText, color: neonBlue)
+                capsuleStat(label: "Water", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--", color: Color.cyan)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             diveMetaRow(dive)
-            diveMap(dive)
+            if showMap {
+                diveMap(dive)
+            }
 
             if isExpanded {
                 intervalScrubber(for: dive, samples: profileSamples)
@@ -433,13 +481,7 @@ struct ContentView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .glassCard(cornerRadius: 24, opacity: 0.22)
     }
 
     private func stat(label: String, value: String, color: Color? = nil) -> some View {
@@ -468,31 +510,18 @@ struct ContentView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(dive.depthText)
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(neonBlue)
                     .monospacedDigit()
-                Text("\(dive.durationText) • \(averageHeartRateText(for: dive))")
+                Text("\(dive.durationText) • \(dive.averageHeartRateText)")
                     .font(.caption2)
                     .foregroundStyle(secondaryText)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+        .glassCard(cornerRadius: 14, opacity: 0.18, shadow: 12, y: 6)
     }
     
-    private func averageHeartRateText(for dive: DiveSummary) -> String {
-        guard !dive.heartRateSamples.isEmpty else { return "--" }
-        let total = dive.heartRateSamples.reduce(0) { $0 + $1.bpm }
-        let avg = Double(total) / Double(dive.heartRateSamples.count)
-        return "\(Int(avg.rounded())) bpm"
-    }
-
     private func intervalScrubber(for dive: DiveSummary, samples: [DiveSample]) -> some View {
         let maxProfileTime = samples.map(\.seconds).max() ?? 0
         let maxHeartTime = dive.heartRateSamples.map(\.seconds).max() ?? 0
@@ -522,11 +551,10 @@ struct ContentView: View {
                 Spacer()
                 Text(formattedElapsed(activeTime))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(primaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.blue.opacity(0.12))
-                    .clipShape(Capsule())
+                    .glassPill(opacity: 0.22, shadow: 0)
             }
 
             HStack(spacing: 10) {
@@ -559,7 +587,7 @@ struct ContentView: View {
 
                 Divider()
                     .frame(height: 24)
-                    .background(secondaryText.opacity(0.16))
+                    .background(secondaryText.opacity(0.25))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Heart rate")
@@ -573,7 +601,7 @@ struct ContentView: View {
 
                 Divider()
                     .frame(height: 24)
-                    .background(secondaryText.opacity(0.16))
+                    .background(secondaryText.opacity(0.25))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Water temp")
@@ -587,12 +615,7 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .background(Color(red: 0.96, green: 0.98, blue: 1.0))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .glassCard(cornerRadius: 16, opacity: 0.2, shadow: 12, y: 6)
         .onAppear {
             scrubTime = safeDuration
             hasSetScrub = false
@@ -631,23 +654,26 @@ struct ContentView: View {
                 let normalized = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
                 let clamped = max(0, min(normalized, 1))
                 let x = clamped * (totalWidth - thumbSize)
+                let activeGradient = LinearGradient(colors: [Color.cyan.opacity(0.9), Color.purple.opacity(0.75)],
+                                                    startPoint: .leading,
+                                                    endPoint: .trailing)
 
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.white.opacity(0.15))
                         .frame(height: trackHeight)
 
                     Capsule()
-                        .fill(Color.blue.opacity(0.35))
+                        .fill(activeGradient)
                         .frame(width: x + thumbSize * 0.5, height: trackHeight)
 
                     Circle()
-                        .fill(Color.white)
+                        .fill(.ultraThinMaterial)
                         .frame(width: thumbSize, height: thumbSize)
-                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                        .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 3)
                         .overlay {
                             Circle()
-                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                                .stroke(activeGradient, lineWidth: 1.2)
                         }
                         .offset(x: x)
                         .gesture(
@@ -690,8 +716,10 @@ struct ContentView: View {
         let duration = effectiveDuration
         let focusTime = min(hasSetScrub ? scrubTime : duration, duration)
         let selected = interpolatedDepthPoint(for: chartPoints, at: focusTime)
-        let cardBackground = Color(red: 0.09, green: 0.10, blue: 0.15)
-        let border = Color.white.opacity(0.08)
+        let cardBackground = LinearGradient(colors: [midnight.opacity(0.9), Color.black.opacity(0.7)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing)
+        let border = Color.white.opacity(0.14)
         let lineGradient = LinearGradient(colors: [.cyan, .green, .yellow, .orange], startPoint: .leading, endPoint: .trailing)
         let fillGradient = LinearGradient(colors: [Color.cyan.opacity(0.32), Color.blue.opacity(0.12)], startPoint: .top, endPoint: .bottom)
         _ = duration > 900 ? 300 : (duration > 480 ? 120 : 60)
@@ -827,12 +855,16 @@ struct ContentView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(border, lineWidth: 1)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(border, lineWidth: 1.2)
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: neonBlue.opacity(0.16), radius: 18, y: 10)
     }
 
     private func profilePoints(for dive: DiveSummary) -> [DiveSample] {
@@ -875,6 +907,82 @@ struct ContentView: View {
         return String(format: "%02d:%02d", minutes, remainder)
     }
 
+    private func formattedHoursMinutes(_ seconds: Double) -> String {
+        let total = Int(max(0, seconds))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
+    private func coordinateLabel(lat: Double, lon: Double) -> String {
+        let latDir = lat >= 0 ? "N" : "S"
+        let lonDir = lon >= 0 ? "E" : "W"
+        return String(format: "%.2f°%@ %.2f°%@", abs(lat), latDir, abs(lon), lonDir)
+    }
+
+    private func weatherCard() -> some View {
+        if let weather = controller.currentWeather {
+            return AnyView(
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Weather near dive")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(secondaryText)
+                        HStack(spacing: 10) {
+                            Image(systemName: weather.symbolName)
+                                .font(.title2.weight(.semibold))
+                                .foregroundStyle(neonBlue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(String(format: "%.1f°C", weather.temperatureC))
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(primaryText)
+                                Text(weather.condition)
+                                    .font(.caption)
+                                    .foregroundStyle(secondaryText)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("Wind \(String(format: "%.0f km/h", weather.windSpeedKmh))")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(primaryText)
+                                Text(coordinateLabel(lat: weather.latitude, lon: weather.longitude))
+                                    .font(.caption2)
+                                    .foregroundStyle(secondaryText)
+                            }
+                        }
+                    }
+                }
+                .padding(14)
+                .glassCard(cornerRadius: 18, opacity: 0.2, shadow: 12, y: 6)
+            )
+        } else if let error = controller.weatherError {
+            return AnyView(
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Color.yellow)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Weather unavailable")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(primaryText)
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(secondaryText)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .glassCard(cornerRadius: 16, opacity: 0.18, shadow: 10, y: 6)
+            )
+        } else {
+            return AnyView(EmptyView())
+        }
+    }
+
     private func legendSwatch(color: Color, label: String) -> some View {
         HStack(spacing: 6) {
             Capsule()
@@ -887,26 +995,15 @@ struct ContentView: View {
     }
 
     private func capsuleStat(label: String, value: String, color: Color) -> some View {
-        HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(color)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(color.opacity(0.12))
-                .clipShape(Capsule())
             Text(value)
-                .font(.caption.weight(.semibold))
+                .font(.headline.weight(.semibold))
                 .foregroundStyle(primaryText)
+                .monospacedDigit()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color.white)
-        .overlay(
-            Capsule().stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
     }
 
     private func diveMetaRow(_ dive: DiveSummary) -> some View {
@@ -917,7 +1014,7 @@ struct ContentView: View {
         return HStack(alignment: .top, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "mappin.and.ellipse")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(neonBlue)
                 Text(location)
                     .font(.caption)
                     .foregroundStyle(primaryText)
@@ -926,7 +1023,7 @@ struct ContentView: View {
             Spacer()
             HStack(spacing: 8) {
                 Image(systemName: "cloud.sun")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(neonPurple)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(weather)
                         .font(.caption)
@@ -958,9 +1055,9 @@ struct ContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+            .shadow(color: neonBlue.opacity(0.15), radius: 12, y: 6)
         )
     }
 
@@ -985,14 +1082,17 @@ struct ContentView: View {
                 let upperRatio = CGFloat((range.upperBound - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound))
                 let lowerX = max(0, min(lowerRatio, 1)) * (width - thumbSize)
                 let upperX = max(0, min(upperRatio, 1)) * (width - thumbSize)
+                let activeGradient = LinearGradient(colors: [Color.cyan.opacity(0.9), Color.purple.opacity(0.75)],
+                                                    startPoint: .leading,
+                                                    endPoint: .trailing)
 
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.white.opacity(0.15))
                         .frame(height: trackHeight)
 
                     Capsule()
-                        .fill(Color.blue.opacity(0.35))
+                        .fill(activeGradient)
                         .frame(width: max(upperX - lowerX + thumbSize, 0), height: trackHeight)
                         .offset(x: lowerX)
 
@@ -1024,21 +1124,18 @@ struct ContentView: View {
 
         private func thumb(x: CGFloat) -> some View {
             Circle()
-                .fill(Color.white)
+                .fill(.ultraThinMaterial)
                 .frame(width: thumbSize, height: thumbSize)
-                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                .shadow(color: Color.cyan.opacity(0.35), radius: 6, y: 2)
                 .overlay {
                     Circle()
-                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        .stroke(LinearGradient(colors: [Color.cyan.opacity(0.9), Color.purple.opacity(0.75)],
+                                               startPoint: .topLeading,
+                                               endPoint: .bottomTrailing),
+                                lineWidth: 1.1)
                 }
                 .offset(x: x)
         }
-    }
-
-    private func clampRange(_ range: ClosedRange<Double>, within bounds: ClosedRange<Double>) -> ClosedRange<Double> {
-        let lower = max(bounds.lowerBound, min(range.lowerBound, bounds.upperBound))
-        let upper = max(lower, min(range.upperBound, bounds.upperBound))
-        return lower...upper
     }
 
     private func timeTickValues(duration: Double) -> [Double] {
@@ -1068,26 +1165,52 @@ struct ContentView: View {
         return candidates.first(where: { $0 >= raw }) ?? 7200
     }
 
-    private enum SortMode: String, CaseIterable, Identifiable {
-        case dateDesc, dateAsc, locationAZ, locationZA
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .dateDesc: return "Date (newest)"
-            case .dateAsc: return "Date (oldest)"
-            case .locationAZ: return "Location A–Z"
-            case .locationZA: return "Location Z–A"
-            }
+    private func metricStrip(dives: [DiveSummary]) -> some View {
+        guard !dives.isEmpty else {
+            return AnyView(
+                HStack {
+                    metricTile(title: "Ready", value: "No dives yet", subtitle: "Sync from your watch", icon: "sparkles")
+                    Spacer(minLength: 0)
+                }
+            )
         }
+
+        let totalSeconds = dives.reduce(0) { $0 + $1.durationSeconds }
+        let avgSeconds = totalSeconds / Double(max(dives.count, 1))
+        let deepest = dives.map(\.maxDepthMeters).max() ?? 0
+        let uniqueLocations = Set(dives.compactMap(\.city)).count
+
+        return AnyView(
+            HStack(spacing: 12) {
+                metricTile(title: "Total time", value: formattedHoursMinutes(totalSeconds), subtitle: "\(dives.count) dive\(dives.count == 1 ? "" : "s")", icon: "timer")
+                metricTile(title: "Deepest", value: String(format: "%.1f m", deepest), subtitle: "\(uniqueLocations) location\(uniqueLocations == 1 ? "" : "s")", icon: "drop.fill")
+                metricTile(title: "Avg. duration", value: formattedElapsed(avgSeconds), subtitle: "per dive", icon: "heart.text.square")
+            }
+        )
     }
 
-    private func locationCity(_ description: String?) -> String? {
-        guard let desc = description, !desc.isEmpty else { return nil }
-        let parts = desc.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
-        let city = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return city?.isEmpty == false ? city : nil
+    private func metricTile(title: String, value: String, subtitle: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(neonBlue)
+                Text(title.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+            }
+            Text(value)
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassCard(cornerRadius: 16, opacity: 0.2, shadow: 10, y: 6)
     }
 
     private func interpolatedDepth(at time: Double, samples: [DiveSample]) -> DiveSample? {
@@ -1357,11 +1480,21 @@ private func waterTempChart(_ dive: DiveSummary) -> some View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.18),
-                                           Color(red: 0.12, green: 0.16, blue: 0.24)],
-                                   startPoint: .top, endPoint: .bottom))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(LinearGradient(colors: [midnight.opacity(0.92), Color.black.opacity(0.7)],
+                                     startPoint: .topLeading,
+                                     endPoint: .bottomTrailing))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(LinearGradient(colors: [Color.white.opacity(0.28), Color.white.opacity(0.1)],
+                                               startPoint: .topLeading,
+                                               endPoint: .bottomTrailing),
+                                lineWidth: 1.1)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: neonBlue.opacity(0.14), radius: 18, y: 10)
     }
 }
 
@@ -1479,11 +1612,21 @@ private func heartRateChart(_ dive: DiveSummary) -> some View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LinearGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.18),
-                                           Color(red: 0.12, green: 0.16, blue: 0.24)],
-                                   startPoint: .top, endPoint: .bottom))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(LinearGradient(colors: [midnight.opacity(0.92), Color.black.opacity(0.7)],
+                                     startPoint: .topLeading,
+                                     endPoint: .bottomTrailing))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(LinearGradient(colors: [Color.white.opacity(0.28), Color.white.opacity(0.1)],
+                                               startPoint: .topLeading,
+                                               endPoint: .bottomTrailing),
+                                lineWidth: 1.1)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: neonBlue.opacity(0.14), radius: 18, y: 10)
     }
 }
 
@@ -1504,15 +1647,11 @@ private func heartRateChart(_ dive: DiveSummary) -> some View {
     private func snapshotDiveCard(_ dive: DiveSummary) -> UIImage? {
         let shareView = diveCard(dive,
                                  showShare: false,
+                                 showMap: false,
                                  isExpanded: true,
                                  onToggle: nil)
             .padding(20)
-            .background(
-                LinearGradient(colors: [
-                    Color(red: 0.95, green: 0.97, blue: 1.0),
-                    Color(red: 0.78, green: 0.90, blue: 0.98)
-                ], startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
+            .background(glassBackdrop)
 
         let targetWidth = max(UIScreen.main.bounds.width - 40, 320)
         if #available(iOS 17.0, *) {
@@ -1568,6 +1707,67 @@ private func heartRateChart(_ dive: DiveSummary) -> some View {
         return base
     }
     #endif
+}
+
+private struct GlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    let opacity: Double
+    let shadow: CGFloat
+    let y: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                shape
+                    .fill(Color.white.opacity(opacity))
+                    .background(.ultraThinMaterial, in: shape)
+                    .overlay(
+                        shape
+                            .stroke(LinearGradient(colors: [Color.white.opacity(0.55), Color.white.opacity(0.16)],
+                                                   startPoint: .topLeading,
+                                                   endPoint: .bottomTrailing),
+                                    lineWidth: 1.1)
+                    )
+            )
+            .shadow(color: Color.cyan.opacity(shadow > 0 ? 0.16 : 0), radius: shadow, y: y)
+            .shadow(color: Color.black.opacity(shadow > 0 ? 0.22 : 0), radius: shadow, y: y / 2)
+    }
+}
+
+private struct GlassPillModifier: ViewModifier {
+    let opacity: Double
+    let shadow: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = Capsule(style: .continuous)
+        content
+            .padding(.horizontal, 2)
+            .background(
+                shape
+                    .fill(Color.white.opacity(opacity))
+                    .background(.ultraThinMaterial, in: shape)
+                    .overlay(
+                        shape
+                            .stroke(LinearGradient(colors: [Color.white.opacity(0.6), Color.white.opacity(0.2)],
+                                                   startPoint: .topLeading,
+                                                   endPoint: .bottomTrailing),
+                                    lineWidth: 1)
+                    )
+            )
+            .shadow(color: Color.cyan.opacity(shadow > 0 ? 0.16 : 0), radius: shadow, y: shadow / 2)
+            .shadow(color: Color.black.opacity(shadow > 0 ? 0.2 : 0), radius: shadow, y: shadow / 4)
+    }
+}
+
+private extension View {
+    func glassCard(cornerRadius: CGFloat = 18, opacity: Double = 0.18, shadow: CGFloat = 18, y: CGFloat = 8) -> some View {
+        modifier(GlassCardModifier(cornerRadius: cornerRadius, opacity: opacity, shadow: shadow, y: y))
+    }
+
+    func glassPill(opacity: Double = 0.18, shadow: CGFloat = 6) -> some View {
+        modifier(GlassPillModifier(opacity: opacity, shadow: shadow))
+    }
 }
 
 #Preview {

@@ -24,6 +24,7 @@
 		B1D9E10C3E9D4E5BB7D3F001 /* DiveSummary+Derived.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E10A3E9D4E5BB7D3F001 /* DiveSummary+Derived.swift */; };
 		B1D9E33D3E9D4E5BB7D3F001 /* DiveListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E33C3E9D4E5BB7D3F001 /* DiveListViewModel.swift */; };
 		B1D9E3603E9D4E5BB7D3F001 /* DiveAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E3503E9D4E5BB7D3F001 /* DiveAPI.swift */; };
+		B1D9E3723E9D4E5BB7D3F001 /* PhotoUploadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E3713E9D4E5BB7D3F001 /* PhotoUploadService.swift */; };
 		B1D9E3103E9D4E5BB7D3F001 /* thisisAwesome_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E3003E9D4E5BB7D3F001 /* thisisAwesome_App.swift */; };
 		B1D9E3113E9D4E5BB7D3F001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E3013E9D4E5BB7D3F001 /* WatchContentView.swift */; };
 		B1D9E3123E9D4E5BB7D3F001 /* DiveSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D9E3023E9D4E5BB7D3F001 /* WatchDiveSummary.swift */; };
@@ -82,6 +83,7 @@
 		B1D9E10A3E9D4E5BB7D3F001 /* DiveSummary+Derived.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiveSummary+Derived.swift"; sourceTree = "<group>"; };
 		B1D9E33C3E9D4E5BB7D3F001 /* DiveListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveListViewModel.swift; sourceTree = "<group>"; };
 		B1D9E3503E9D4E5BB7D3F001 /* DiveAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveAPI.swift; sourceTree = "<group>"; };
+		B1D9E3713E9D4E5BB7D3F001 /* PhotoUploadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoUploadService.swift; sourceTree = "<group>"; };
 		B1D9E3003E9D4E5BB7D3F001 /* thisisAwesome_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = thisisAwesome_App.swift; sourceTree = "<group>"; };
 		B1D9E3013E9D4E5BB7D3F001 /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; name = ContentView.swift; };
 		B1D9E3023E9D4E5BB7D3F001 /* WatchDiveSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiveSummary.swift; sourceTree = "<group>"; name = DiveSummary.swift; };
@@ -191,6 +193,7 @@
 			isa = PBXGroup;
 			children = (
 				B1D9E3503E9D4E5BB7D3F001 /* DiveAPI.swift */,
+				B1D9E3713E9D4E5BB7D3F001 /* PhotoUploadService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -417,6 +420,7 @@
 				B1D9E33B3E9D4E5BB7D3F001 /* AppEnvironment.swift in Sources */,
 				B1D9E33D3E9D4E5BB7D3F001 /* DiveListViewModel.swift in Sources */,
 				B1D9E3603E9D4E5BB7D3F001 /* DiveAPI.swift in Sources */,
+				B1D9E3723E9D4E5BB7D3F001 /* PhotoUploadService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

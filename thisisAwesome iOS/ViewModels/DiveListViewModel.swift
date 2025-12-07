@@ -10,6 +10,8 @@ final class DiveListViewModel: ObservableObject {
     @Published var hasUserScrolled: Bool = false
     @Published var isLastCardVisible: Bool = false
     @Published var isPaging: Bool = false
+    @Published var photoStates: [UUID: PhotoUploadState] = [:]
+    @Published var photoURLs: [UUID: URL] = [:]
     @Published var controller: DiveController?
 
     @Published private(set) var uniqueDives: [DiveSummary] = []
@@ -72,6 +74,7 @@ final class DiveListViewModel: ObservableObject {
         hasUserScrolled = false
         isLastCardVisible = false
         isPaging = false
+        limitedDives = Array(filteredDives.prefix(displayedCount))
     }
 
     func loadMoreIfNeeded(allDives: [DiveSummary]) {
@@ -81,6 +84,7 @@ final class DiveListViewModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.displayedCount = min(self.displayedCount + 5, allDives.count)
+            self.limitedDives = Array(self.filteredDives.prefix(self.displayedCount))
             self.hasUserScrolled = false
             self.isPaging = false
         }
@@ -91,6 +95,32 @@ final class DiveListViewModel: ObservableObject {
         loadMoreIfNeeded(allDives: allDives)
     }
 
+    // MARK: - Photo uploads
+
+    func uploadPhoto(for dive: DiveSummary,
+                     data: Data,
+                     uploader: PhotoUploadService) async {
+        await MainActor.run {
+            photoStates[dive.id] = .uploading
+        }
+
+        do {
+            let url = try await uploader.uploadPhoto(data: data, diveId: dive.id)
+            await MainActor.run {
+                photoURLs[dive.id] = url
+                photoStates[dive.id] = .uploaded(url)
+            }
+        } catch {
+            await MainActor.run {
+                photoStates[dive.id] = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func state(for dive: DiveSummary) -> PhotoUploadState {
+        photoStates[dive.id] ?? .idle
+    }
+
     private func clampRange(_ range: ClosedRange<Double>, within bounds: ClosedRange<Double>) -> ClosedRange<Double> {
         let lower = max(bounds.lowerBound, min(range.lowerBound, bounds.upperBound))
         let upper = min(bounds.upperBound, max(range.upperBound, bounds.lowerBound))
@@ -99,4 +129,11 @@ final class DiveListViewModel: ObservableObject {
         }
         return lower...upper
     }
+}
+
+enum PhotoUploadState: Equatable {
+    case idle
+    case uploading
+    case uploaded(URL)
+    case failed(String)
 }

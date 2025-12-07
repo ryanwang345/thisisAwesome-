@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import UIKit
 import MapKit
+import PhotosUI
 
 struct ContentView: View {
     @EnvironmentObject private var environment: AppEnvironment
@@ -17,6 +18,9 @@ struct ContentView: View {
     @State private var hasSetScrub: Bool = false
     @State private var expandedDives: Set<UUID> = []
     @StateObject private var listViewModel = DiveListViewModel()
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var photoTargetDive: DiveSummary?
+    @State private var photoError: String?
 
     private func toggleExpansion(for dive: DiveSummary) {
         if expandedDives.contains(dive.id) {
@@ -164,6 +168,12 @@ struct ContentView: View {
             selectedHeartTime = newValue
         }
         .preferredColorScheme(.dark)
+        .photosPicker(isPresented: Binding(get: { photoTargetDive != nil }, set: { newValue in
+            if !newValue { photoTargetDive = nil }
+        }), selection: $photoPickerItem, matching: .images)
+        .onChange(of: photoPickerItem) { _, newItem in
+            Task { await handlePhotoSelection(item: newItem) }
+        }
     }
 
     private var glassBackdrop: some View {
@@ -446,6 +456,7 @@ struct ContentView: View {
                 capsuleStat(label: "Water", value: dive.waterTemperatureCelsius.map { String(format: "%.1f C", $0) } ?? "--", color: Color.cyan)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            photoAttachmentSection(for: dive)
             diveMetaRow(dive)
             if showMap {
                 diveMap(dive)
@@ -462,6 +473,93 @@ struct ContentView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard(cornerRadius: 24, opacity: 0.22)
+    }
+
+    @ViewBuilder
+    private func photoAttachmentSection(for dive: DiveSummary) -> some View {
+        let state = listViewModel.state(for: dive)
+        let photoURL = listViewModel.photoURLs[dive.id]
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Photos")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(primaryText)
+                Spacer()
+                Button {
+                    photoTargetDive = dive
+                } label: {
+                    Label("Add photo", systemImage: "camera")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .glassPill(opacity: 0.22, shadow: 0)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(primaryText)
+            }
+
+            if let url = photoURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.06))
+                            ProgressView()
+                        }
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    case .failure:
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.06))
+                            Text("Failed to load photo")
+                                .font(.caption)
+                                .foregroundStyle(Color.red)
+                        }
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            } else {
+                Text("No photo attached yet.")
+                    .font(.caption)
+                    .foregroundStyle(secondaryText)
+            }
+
+            switch state {
+            case .uploading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    Text("Uploading to S3...")
+                        .font(.caption)
+                        .foregroundStyle(secondaryText)
+                }
+            case .failed(let message):
+                Text("Upload failed: \(message)")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            case .uploaded:
+                Text("Photo synced to S3.")
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+            case .idle:
+                EmptyView()
+            }
+
+            if let photoError {
+                Text(photoError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func stat(label: String, value: String, color: Color? = nil) -> some View {
@@ -984,6 +1082,30 @@ struct ContentView: View {
                 .foregroundStyle(primaryText)
                 .monospacedDigit()
         }
+    }
+
+    @MainActor
+    private func handlePhotoSelection(item: PhotosPickerItem?) async {
+        guard let dive = photoTargetDive, let item else {
+            photoTargetDive = nil
+            photoPickerItem = nil
+            return
+        }
+
+        photoError = nil
+
+        do {
+            if let data = try await item.loadTransferable(type: Data.self) {
+                await listViewModel.uploadPhoto(for: dive, data: data, uploader: environment.photoUploader)
+            } else {
+                photoError = "Could not read the selected photo."
+            }
+        } catch {
+            photoError = error.localizedDescription
+        }
+
+        photoTargetDive = nil
+        photoPickerItem = nil
     }
 
     private func diveMetaRow(_ dive: DiveSummary) -> some View {
